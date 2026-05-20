@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🚀 Run AegisRadar API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/AegisRadar.API/AegisRadar.API.csproj",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    {
+      "name": "🔄 Run AegisRadar Worker",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/AegisRadar.Worker/AegisRadar.Worker.csproj",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    },
+    {
+      "name": "🧪 Run Unit Tests",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/tests/AegisRadar.UnitTests/AegisRadar.UnitTests.csproj"
+    }
+  ]
+}

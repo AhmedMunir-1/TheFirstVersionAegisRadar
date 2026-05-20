@@ -1,0 +1,17 @@
+.env
+*.user
+*.suo
+.vs/
+bin/
+obj/
+logs/
+*.log
+/packages/
+.DS_Store
+*.pfx
+*.key
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pkl
