@@ -12,12 +12,20 @@ public class MerchantConfiguration : IEntityTypeConfiguration<Merchant>
         b.Property(m => m.CompanyName).IsRequired().HasMaxLength(200);
         b.Property(m => m.Email).IsRequired().HasMaxLength(200);
         b.Property(m => m.ApiKey).IsRequired().HasMaxLength(100);
-        b.Property(m => m.Country).HasMaxLength(2).HasDefaultValue("EG");
+        b.Property(m => m.Country).HasMaxLength(100).HasDefaultValue("EG");
         b.Property(m => m.Role).HasMaxLength(20).HasDefaultValue("Admin");
         b.Property(m => m.PasswordHash).IsRequired().HasMaxLength(500);
+        
+        // Free Trial Fields - using SQL default expressions to avoid dynamic values in migrations
+        b.Property(m => m.TrialStartDate).HasDefaultValueSql("GETUTCDATE()");
+        b.Property(m => m.TrialEndDate).HasDefaultValueSql("DATEADD(day, 14, GETUTCDATE())");
+        b.Property(m => m.IsTrialActive).HasDefaultValue(true);
+        b.Property(m => m.HasPaymentMethod).HasDefaultValue(false);
+        b.Property(m => m.PaymentMethodToken).HasMaxLength(500);
 
         b.HasIndex(m => m.ApiKey).IsUnique();
         b.HasIndex(m => m.Email).IsUnique();
+        b.HasIndex(m => m.TrialEndDate);
 
         b.HasOne(m => m.Plan)
          .WithMany(p => p.Merchants)
@@ -128,6 +136,35 @@ public class MerchantSubscriptionConfiguration : IEntityTypeConfiguration<Mercha
         b.HasOne(s => s.Plan)
          .WithMany(p => p.MerchantSubscriptions)
          .HasForeignKey(s => s.PlanId)
+         .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
+{
+    public void Configure(EntityTypeBuilder<Payment> b)
+    {
+        b.HasKey(p => p.Id);
+        b.Property(p => p.Amount).HasColumnType("decimal(18,2)");
+        b.Property(p => p.Status).HasConversion<string>();
+        b.Property(p => p.TransactionReference).HasMaxLength(100);
+        b.Property(p => p.FailureReason).HasMaxLength(500);
+        b.Property(p => p.PaymentMethodLast4).HasMaxLength(4);
+        b.Property(p => p.FraudScore).HasColumnType("decimal(5,4)");
+        b.Property(p => p.FraudReason).HasMaxLength(500);
+
+        b.HasIndex(p => new { p.MerchantId, p.CreatedAt });
+        b.HasIndex(p => p.Status);
+        b.HasIndex(p => p.TransactionReference).IsUnique();
+
+        b.HasOne(p => p.Merchant)
+         .WithMany(m => m.Payments)
+         .HasForeignKey(p => p.MerchantId)
+         .OnDelete(DeleteBehavior.Cascade);
+
+        b.HasOne(p => p.Plan)
+         .WithMany()
+         .HasForeignKey(p => p.PlanId)
          .OnDelete(DeleteBehavior.Restrict);
     }
 }

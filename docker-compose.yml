@@ -5,7 +5,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: aegis-sqlserver
     environment:
-      SA_PASSWORD: "${SQL_PASSWORD:-AegisRadar@2024!}"
+      SA_PASSWORD: "${SQL_PASSWORD:-MyStrongPass123}"
       ACCEPT_EULA: "Y"
       MSSQL_PID: "Developer"
     ports:
@@ -13,7 +13,7 @@ services:
     volumes:
       - sqlserver_data:/var/opt/mssql
     healthcheck:
-      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SQL_PASSWORD:-AegisRadar@2024!}" -Q "SELECT 1" -C || exit 1
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SQL_PASSWORD:-MyStrongPass123}" -Q "SELECT 1" -C || exit 1
       interval: 15s
       timeout: 10s
       retries: 10

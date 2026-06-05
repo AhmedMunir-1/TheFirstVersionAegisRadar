@@ -17,7 +17,7 @@ RUN dotnet publish "AegisRadar.Worker.csproj" -c Release -o /app/publish --no-re
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 WORKDIR /app
 
-RUN addgroup --system aegis && adduser --system --ingroup aegis aegis
+RUN groupadd --system aegis && useradd --system --gid aegis aegis
 USER aegis
 
 COPY --from=build /app/publish .

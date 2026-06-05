@@ -133,11 +133,20 @@ try
     }
 
     // ── Hangfire Recurring Jobs (use service-based API, not static) ───────────
-    var recurringJobs = app.Services.GetRequiredService<IRecurringJobManager>();
-    recurringJobs.AddOrUpdate<FraudSummaryJob>(
-        "fraud-daily-summary",
-        job => job.ExecuteAsync(),
-        Cron.Daily);
+    try
+    {
+        var recurringJobs = app.Services.GetRequiredService<IRecurringJobManager>();
+        recurringJobs.AddOrUpdate<FraudSummaryJob>(
+            "fraud-daily-summary",
+            job => job.ExecuteAsync(),
+            Cron.Daily);
+        Console.WriteLine("✓ Hangfire recurring jobs configured successfully");
+    }
+    catch (Exception ex)
+    {
+        // Log warning but continue - Hangfire may not be available if database doesn't exist
+        Console.WriteLine($"⚠ Warning: Could not configure Hangfire recurring jobs. Database may not exist yet. Error: {ex.Message}");
+    }
 
     // ── Middleware Pipeline ───────────────────────────────────────────────────
     app.UseMiddleware<ExceptionHandlingMiddleware>();

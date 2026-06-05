@@ -9,11 +9,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace AegisRadar.Infrastructure.Persistence.Migrations
+namespace AegisRadar.Infrastructure.Migrations
 {
     [DbContext(typeof(AegisRadarDbContext))]
-    [Migration("20260507220536_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260604221039_UpdatePendingChanges")]
+    partial class UpdatePendingChanges
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -80,8 +80,8 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                     b.Property<string>("Country")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasMaxLength(2)
-                        .HasColumnType("nvarchar(2)")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
                         .HasDefaultValue("EG");
 
                     b.Property<DateTime>("CreatedAt")
@@ -92,8 +92,37 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("EmailVerificationCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("EmailVerificationExpires")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("HasPaymentMethod")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsEmailConfirmed")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsTrialActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PasswordResetCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("PasswordResetExpires")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PaymentMethodToken")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
@@ -107,6 +136,16 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasDefaultValue("Admin");
 
+                    b.Property<DateTime>("TrialEndDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("DATEADD(day, 14, GETUTCDATE())");
+
+                    b.Property<DateTime>("TrialStartDate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApiKey")
@@ -116,6 +155,8 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("PlanId");
+
+                    b.HasIndex("TrialEndDate");
 
                     b.ToTable("Merchants");
                 });
@@ -151,6 +192,74 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                     b.HasIndex("MerchantId", "IsActive");
 
                     b.ToTable("MerchantSubscriptions");
+                });
+
+            modelBuilder.Entity("AegisRadar.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("FraudReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<decimal?>("FraudScore")
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<bool>("IsFraudDetected")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PaymentMethodLast4")
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<DateTime>("PeriodEndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("PeriodStartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("TransactionReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TransactionReference")
+                        .IsUnique()
+                        .HasFilter("[TransactionReference] IS NOT NULL");
+
+                    b.HasIndex("MerchantId", "CreatedAt");
+
+                    b.ToTable("Payments");
                 });
 
             modelBuilder.Entity("AegisRadar.Domain.Entities.Prediction", b =>
@@ -364,6 +473,25 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
                     b.Navigation("Plan");
                 });
 
+            modelBuilder.Entity("AegisRadar.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("AegisRadar.Domain.Entities.Merchant", "Merchant")
+                        .WithMany("Payments")
+                        .HasForeignKey("MerchantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AegisRadar.Domain.Entities.SubscriptionPlan", "Plan")
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Merchant");
+
+                    b.Navigation("Plan");
+                });
+
             modelBuilder.Entity("AegisRadar.Domain.Entities.Prediction", b =>
                 {
                     b.HasOne("AegisRadar.Domain.Entities.Transaction", "Transaction")
@@ -400,6 +528,8 @@ namespace AegisRadar.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AegisRadar.Domain.Entities.Merchant", b =>
                 {
                     b.Navigation("Alerts");
+
+                    b.Navigation("Payments");
 
                     b.Navigation("Subscriptions");
 

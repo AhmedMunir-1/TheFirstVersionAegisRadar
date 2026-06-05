@@ -28,13 +28,47 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<LoginResponseDto>.Ok(result, "Login successful."));
     }
 
-    /// <summary>Register a new merchant account (receives Starter plan by default).</summary>
+    /// <summary>Register a new merchant account (sends verification code to email).</summary>
     [HttpPost("register")]
-    [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), 201)]
+    [ProducesResponseType(typeof(ApiResponse<RegisterResultDto>), 201)]
     [ProducesResponseType(400)]
     public async Task<IActionResult> Register([FromBody] RegisterMerchantDto request, CancellationToken ct)
     {
         var result = await _mediator.Send(new RegisterMerchantCommand(request), ct);
-        return StatusCode(201, ApiResponse<LoginResponseDto>.Ok(result, "Merchant registered successfully."));
+        if (result is null)
+            return BadRequest(ApiResponse<RegisterResultDto>.Fail("Registration failed. Email might already be in use."));
+
+        return StatusCode(201, ApiResponse<RegisterResultDto>.Ok(result, "Verification code sent to email."));
+    }
+
+    /// <summary>Verify email with code and receive JWT token.</summary>
+    [HttpPost("verify")]
+    [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), 200)]
+    [ProducesResponseType(400)]
+    public async Task<IActionResult> Verify([FromBody] VerifyEmailRequestDto request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new VerifyEmailCommand(request), ct);
+        if (result is null)
+            return BadRequest(ApiResponse<LoginResponseDto>.Fail("Invalid verification code or expired."));
+
+        return Ok(ApiResponse<LoginResponseDto>.Ok(result, "Email verified. Logged in."));
+    }
+
+    /// <summary>Request a password reset code to be sent to email.</summary>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequestDto request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new ForgotPasswordCommand(request), ct);
+        return Ok(ApiResponse<bool>.Ok(result, result ? "Reset code sent." : "Email not found."));
+    }
+
+    /// <summary>Reset password using code sent to email.</summary>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new ResetPasswordCommand(request), ct);
+        return Ok(ApiResponse<bool>.Ok(result, result ? "Password reset successful." : "Invalid code or expired."));
     }
 }

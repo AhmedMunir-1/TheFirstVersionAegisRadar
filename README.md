@@ -162,21 +162,21 @@ This starts: **SQL Server**, **Zookeeper**, **Kafka**, **Redis**, **AegisRadar A
 # Start infrastructure services only
 docker-compose up sqlserver zookeeper kafka redis -d
 
-# Run the API
-dotnet run --project src/AegisRadar.API/
+# Run the API with hot-reload (recommended for development)
+dotnet watch run --project src/AegisRadar.API/AegisRadar.API.csproj
 
 # In a separate terminal, run the Worker
-dotnet run --project src/AegisRadar.Worker/
+dotnet run --project src/AegisRadar.Worker/AegisRadar.Worker.csproj
 ```
 
 ### 4. Access Services
 
 | Service            | URL                                 |
 | ------------------ | ----------------------------------- |
-| API + Swagger      | http://localhost:5000/swagger        |
-| Health Check       | http://localhost:5000/health         |
-| Hangfire Dashboard | http://localhost:5000/hangfire       |
-| SignalR Hub        | ws://localhost:5000/hubs/fraud-alerts|
+| API + Swagger      | http://localhost:5099/swagger        |
+| Health Check       | http://localhost:5099/health         |
+| Hangfire Dashboard | http://localhost:5099/hangfire       |
+| SignalR Hub        | ws://localhost:5099/hubs/fraud-alerts|
 
 ---
 
@@ -427,8 +427,8 @@ dotnet test
 ```jsonc
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=...",   // SQL Server connection
-    "Redis": "localhost:6379"            // Redis connection
+    "DefaultConnection": "Server=localhost,1433;Database=AegisRadarDB;User Id=sa;Password=Ahmed@12345;TrustServerCertificate=True;",
+    "Redis": "localhost:6379"
   },
   "Jwt": {
     "Secret": "...",                     // Signing key (min 32 chars)

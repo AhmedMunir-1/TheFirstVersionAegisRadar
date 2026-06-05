@@ -39,7 +39,11 @@ public class MerchantsController : ControllerBase
             merchant.ApiKey,
             merchant.Role,
             Plan = merchant.Plan?.Name ?? "Unknown",
-            merchant.CreatedAt
+            merchant.CreatedAt,
+            merchant.TrialStartDate,
+            merchant.TrialEndDate,
+            merchant.IsTrialActive,
+            merchant.HasPaymentMethod
         }));
     }
 }

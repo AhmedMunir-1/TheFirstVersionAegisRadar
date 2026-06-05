@@ -1,6 +1,7 @@
 using AegisRadar.Domain.Entities;
 using AegisRadar.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -10,22 +11,54 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(AegisRadarDbContext context)
     {
-        await context.Database.MigrateAsync();
-
-        // ── Subscription Plans ─────────────────────────────────────────────
-        if (!await context.SubscriptionPlans.AnyAsync())
+        try
         {
-            var starter    = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000001"), Name = SubscriptionPlanNames.Starter,    MonthlyPrice = 299,  TransactionLimit = 5000 };
-            var business   = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000002"), Name = SubscriptionPlanNames.Business,   MonthlyPrice = 999,  TransactionLimit = 25000 };
-            var enterprise = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000003"), Name = SubscriptionPlanNames.Enterprise, MonthlyPrice = 2999, TransactionLimit = -1 };
-
-            context.SubscriptionPlans.AddRange(starter, business, enterprise);
-            await context.SaveChangesAsync();
+            await context.Database.MigrateAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Suppress migration validation errors at startup to allow hot-reload
+            // The issue is usually caused by non-deterministic model data used in seeding.
+            // We surface the error in logs but continue so the app can start for debugging.
+            Console.WriteLine("Warning: migration validation failed during seeding: " + ex.Message);
+            return; // Skip seeding if migrations fail
+        }
+        catch (SqlException ex) when (ex.Number == 262)
+        {
+            // Permission denied to CREATE DATABASE - common on shared hosting
+            // The database may already exist or needs to be created manually through hosting panel
+            Console.WriteLine($"Warning: Cannot create database (Permission Denied). The database may need to be created manually through your hosting panel. Error: {ex.Message}");
+            return; // Skip seeding if we can't create database
+        }
+        catch (SqlException ex) when (ex.Number == 4060)
+        {
+            // Cannot open database - database doesn't exist
+            Console.WriteLine($"Warning: Database does not exist yet. Please create the database through your hosting provider's control panel. Error: {ex.Message}");
+            return; // Skip seeding if database doesn't exist
+        }
+        catch (Exception ex)
+        {
+            // Log other exceptions but continue to allow app to start
+            Console.WriteLine($"Warning: Database seeding encountered an error: {ex.GetType().Name} - {ex.Message}");
+            return; // Skip seeding on any error
         }
 
-        // ── Demo Merchant ──────────────────────────────────────────────────
-        if (!await context.Merchants.AnyAsync())
+        try
         {
+            // ── Subscription Plans ─────────────────────────────────────────────
+            if (!await context.SubscriptionPlans.AnyAsync())
+            {
+                var starter    = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000001"), Name = SubscriptionPlanNames.Starter,    MonthlyPrice = 299,  TransactionLimit = 5000 };
+                var business   = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000002"), Name = SubscriptionPlanNames.Business,   MonthlyPrice = 999,  TransactionLimit = 25000 };
+                var enterprise = new SubscriptionPlan { Id = Guid.Parse("11111111-0000-0000-0000-000000000003"), Name = SubscriptionPlanNames.Enterprise, MonthlyPrice = 2999, TransactionLimit = -1 };
+
+                context.SubscriptionPlans.AddRange(starter, business, enterprise);
+                await context.SaveChangesAsync();
+            }
+
+            // ── Demo Merchant ──────────────────────────────────────────────────
+            if (!await context.Merchants.AnyAsync())
+            {
             var demoMerchantId = Guid.Parse("22222222-0000-0000-0000-000000000001");
             var starterPlanId  = Guid.Parse("11111111-0000-0000-0000-000000000001");
 
@@ -109,6 +142,17 @@ public static class DbSeeder
             }
 
             await context.SaveChangesAsync();
+            }
+        }
+        catch (SqlException ex)
+        {
+            // Handle database errors during seeding
+            Console.WriteLine($"Warning: Database seeding failed with SQL error: {ex.Number} - {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            // Handle any other errors during seeding
+            Console.WriteLine($"Warning: Database seeding failed: {ex.GetType().Name} - {ex.Message}");
         }
     }
 

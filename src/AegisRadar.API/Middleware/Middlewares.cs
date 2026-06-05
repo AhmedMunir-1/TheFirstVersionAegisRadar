@@ -44,7 +44,7 @@ public class ApiKeyMiddleware
             var merchant = await uow.Merchants.GetByApiKeyAsync(apiKey!, context.RequestAborted);
             if (merchant is null)
             {
-                _logger.LogWarning("Invalid API key attempt: {ApiKey}", apiKey);
+                _logger.LogWarning("Invalid API key attempt: {ApiKey}", (string?)apiKey);                
                 context.Response.StatusCode = 401;
                 await context.Response.WriteAsJsonAsync(new { error = "Invalid API key." });
                 return;

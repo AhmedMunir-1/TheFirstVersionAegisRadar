@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace AegisRadar.Infrastructure.Persistence.Migrations
+namespace AegisRadar.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration

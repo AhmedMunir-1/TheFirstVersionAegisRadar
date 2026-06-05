@@ -19,8 +19,9 @@ try
     // ── Infrastructure (EF, Repos, Kafka, Redis, ML Client) ──────────────────
     builder.Services.AddInfrastructure(builder.Configuration);
 
-    // ── Kafka Consumer Background Service ─────────────────────────────────────
+    // ── Kafka Consumer Background Services ────────────────────────────────────
     builder.Services.AddHostedService<TransactionConsumerService>();
+    builder.Services.AddHostedService<PredictionConsumerService>();
 
     var host = builder.Build();
     Log.Information("AegisRadar Worker starting...");

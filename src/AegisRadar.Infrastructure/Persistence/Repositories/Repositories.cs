@@ -40,13 +40,16 @@ public class TransactionRepository : BaseRepository<Transaction>, ITransactionRe
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
     public async Task<IEnumerable<Transaction>> GetByMerchantIdAsync(Guid merchantId, int page, int pageSize, CancellationToken cancellationToken = default)
-        => await _context.Transactions
+    {
+        int validPage = page < 1 ? 1 : page;
+        return await _context.Transactions
             .Include(t => t.Prediction)
             .Where(t => t.MerchantId == merchantId)
             .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
+            .Skip((validPage - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<int> GetTodayCountByMerchantAsync(Guid merchantId, CancellationToken cancellationToken = default)
     {

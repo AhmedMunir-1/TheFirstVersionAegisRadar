@@ -1,0 +1,438 @@
+{
+  "info": {
+    "name": "AegisRadar - Fraud Detection API",
+    "description": "Complete API test collection for AegisRadar fraud detection platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@aegisradar.io\",\n  \"password\": \"Demo@1234\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:5099/api/auth/login",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register New Merchant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Test Company\",\n  \"email\": \"test@company.com\",\n  \"password\": \"SecurePass@123\",\n  \"country\": \"EG\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:5099/api/auth/register",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "auth", "register"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "Submit Transaction (API Key Auth)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "ar_demo_key_aegisradar_2024_secure"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cust_{{$timestamp}}\",\n  \"amount\": 1500.00,\n  \"currency\": \"EGP\",\n  \"country\": \"EG\",\n  \"mcc\": 5411,\n  \"deviceId\": \"dev_abc123\",\n  \"ipAddress\": \"197.1.2.3\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:5099/api/transactions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "transactions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit High-Risk Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "ar_demo_key_aegisradar_2024_secure"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cust_001_high_risk\",\n  \"amount\": 50000.00,\n  \"currency\": \"EGP\",\n  \"country\": \"US\",\n  \"mcc\": 6211,\n  \"deviceId\": \"dev_suspicious\",\n  \"ipAddress\": \"8.8.8.8\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:5099/api/transactions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "transactions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/transactions?page=1&pageSize=20",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "transactions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transaction by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/transactions/{{transaction_id}}",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "transactions", "{{transaction_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/dashboard/stats",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "dashboard", "stats"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Trends (7 days)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/dashboard/trends?days=7",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "dashboard", "trends"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recent Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/dashboard/recent?count=10",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "dashboard", "recent"],
+              "query": [
+                {
+                  "key": "count",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "Get All Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/alerts",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "alerts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Alerts Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/alerts?unreadOnly=true",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "alerts"],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Alert as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/alerts/{{alert_id}}/read",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "alerts", "{{alert_id}}", "read"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Alerts as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/alerts/read-all",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "alerts", "read-all"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Merchant Profile",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:5099/api/merchants/me",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "merchants", "me"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Subscription Plans",
+      "item": [
+        {
+          "name": "Get All Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5099/api/subscriptions/plans",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["api", "subscriptions", "plans"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5099/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Hangfire Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5099/hangfire",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5099",
+              "path": ["hangfire"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "transaction_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alert_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

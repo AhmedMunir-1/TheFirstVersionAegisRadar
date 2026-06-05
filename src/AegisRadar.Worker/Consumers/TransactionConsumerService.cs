@@ -96,6 +96,24 @@ public class TransactionConsumerService : BackgroundService
 
         try
         {
+            // 0. Create and save transaction entity first
+            var transaction = new Transaction
+            {
+                Id = evt.TransactionId,
+                MerchantId = evt.MerchantId,
+                CustomerId = evt.CustomerId,
+                Amount = evt.Amount,
+                Currency = evt.Currency,
+                Country = evt.TransactionCountry,
+                Mcc = evt.Mcc,
+                DeviceId = evt.DeviceId,
+                IpAddress = evt.IpAddress,
+                Status = TransactionStatus.Pending,
+                CreatedAt = evt.CreatedAt
+            };
+            await uow.Transactions.AddAsync(transaction, ct);
+            await uow.SaveChangesAsync(ct);
+
             // 1. Compute 8 fraud features
             var features = await featureSvc.ComputeFeaturesAsync(
                 evt.MerchantId,
@@ -137,18 +155,14 @@ public class TransactionConsumerService : BackgroundService
             await uow.TransactionHistories.AddAsync(history, ct);
 
             // 5. Update transaction status
-            var transaction = await uow.Transactions.GetByIdAsync(evt.TransactionId, ct);
-            if (transaction is not null)
+            transaction.Status = decision switch
             {
-                transaction.Status = decision switch
-                {
-                    FraudDecision.Approved => TransactionStatus.Approved,
-                    FraudDecision.Review   => TransactionStatus.Review,
-                    FraudDecision.Blocked  => TransactionStatus.Blocked,
-                    _                      => TransactionStatus.Pending
-                };
-                uow.Transactions.Update(transaction);
-            }
+                FraudDecision.Approved => TransactionStatus.Approved,
+                FraudDecision.Review   => TransactionStatus.Review,
+                FraudDecision.Blocked  => TransactionStatus.Blocked,
+                _                      => TransactionStatus.Pending
+            };
+            uow.Transactions.Update(transaction);
 
             // 6. Create alert if needed
             Alert? alert = null;

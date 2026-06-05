@@ -14,17 +14,20 @@ using StackExchange.Redis;
 
 namespace AegisRadar.Infrastructure;
 
+// SQL Server configuration for local development and deployment
+// Connection string format: Server=server;Database=dbname;User Id=user;Password=pass;
+
 public static class InfrastructureServiceRegistration
 {
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // ── EF Core / SQL Server ───────────────────────────────────────────
+        // ── EF Core / SQL Server ────────────────────────────────────────────
         services.AddDbContext<AegisRadarDbContext>(options =>
             options.UseSqlServer(
                 configuration.GetConnectionString("DefaultConnection"),
-                sql => sql.MigrationsAssembly(typeof(AegisRadarDbContext).Assembly.FullName)));
+                sqlServer => sqlServer.MigrationsAssembly(typeof(AegisRadarDbContext).Assembly.FullName)));
 
         // ── Repositories & Unit of Work ────────────────────────────────────
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -33,6 +36,7 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IAlertRepository, AlertRepository>();
         services.AddScoped<IMerchantRepository, MerchantRepository>();
         services.AddScoped<ITransactionHistoryRepository, TransactionHistoryRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
 
         // ── Redis ──────────────────────────────────────────────────────────
         var redisConnection = configuration.GetConnectionString("Redis") ?? "localhost:6379";
@@ -53,6 +57,10 @@ public static class InfrastructureServiceRegistration
             client.Timeout     = TimeSpan.FromSeconds(10);
         });
 
+        // ── Email / SMTP
+        services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        services.AddScoped<IEmailService, SmtpEmailService>();
+
         // ── Domain Services ────────────────────────────────────────────────
         services.AddScoped<IFeatureEngineeringService, FeatureEngineeringService>();
         services.AddScoped<INotificationService, SignalRNotificationService>();
@@ -66,17 +74,11 @@ public static class InfrastructureServiceRegistration
             .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
             .UseSimpleAssemblyNameTypeSerializer()
             .UseRecommendedSerializerSettings()
-            .UseSqlServerStorage(configuration.GetConnectionString("DefaultConnection"),
-                new SqlServerStorageOptions
-                {
-                    CommandBatchMaxTimeout       = TimeSpan.FromMinutes(5),
-                    SlidingInvisibilityTimeout   = TimeSpan.FromMinutes(5),
-                    QueuePollInterval            = TimeSpan.Zero,
-                    UseRecommendedIsolationLevel = true,
-                    DisableGlobalLocks           = true
-                }));
+            .UseSqlServerStorage(configuration.GetConnectionString("DefaultConnection")));
 
-        services.AddHangfireServer();
+        // NOTE: AddHangfireServer() removed to allow app startup when database is unavailable
+        // It will be registered later in Program.cs with error handling
+        // services.AddHangfireServer();
 
         return services;
     }

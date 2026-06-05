@@ -7,6 +7,7 @@ public interface IUnitOfWork : IDisposable
     IAlertRepository Alerts { get; }
     IMerchantRepository Merchants { get; }
     ITransactionHistoryRepository TransactionHistories { get; }
+    IPaymentRepository Payments { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
