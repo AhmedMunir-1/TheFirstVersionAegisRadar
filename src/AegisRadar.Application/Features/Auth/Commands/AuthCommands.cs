@@ -14,32 +14,43 @@ public record LoginCommand(LoginRequestDto Request) : IRequest<LoginResponseDto?
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, LoginResponseDto?>
 {
- 
-     private readonly IUnitOfWork _uow;
-     private readonly ITokenService _tokenService;
+    private readonly IUnitOfWork _uow;
+    private readonly ITokenService _tokenService;
+    private readonly IDemoTransactionGenerator _demoTransactionGenerator;
 
-     public LoginCommandHandler(IUnitOfWork uow, ITokenService tokenService)
-     {
-    
-        _uow          = uow;
+    public LoginCommandHandler(IUnitOfWork uow, ITokenService tokenService, IDemoTransactionGenerator demoTransactionGenerator)
+    {
+        _uow = uow;
         _tokenService = tokenService;
+        _demoTransactionGenerator = demoTransactionGenerator;
+    }
 
-     }
-
-
-     public async Task<LoginResponseDto?> Handle(LoginCommand request, CancellationToken cancellationToken)
-     {
-        
+    public async Task<LoginResponseDto?> Handle(LoginCommand request, CancellationToken cancellationToken)
+    {
         var merchant = await _uow.Merchants.GetByEmailAsync(request.Request.Email, cancellationToken);
         if (merchant is null) return null;
 
         var hash = HashPassword(request.Request.Password);
         if (merchant.PasswordHash != hash) return null;
 
-        var token   = _tokenService.GenerateToken(merchant.Id, merchant.Email, merchant.CompanyName, merchant.Role);
+        await TryGenerateDemoTransactionsAsync(merchant, cancellationToken);
+
+        var token = _tokenService.GenerateToken(merchant.Id, merchant.Email, merchant.CompanyName, merchant.Role);
         var expires = DateTime.UtcNow.AddHours(8);
         return new LoginResponseDto(token, merchant.Email, merchant.CompanyName, merchant.Role, expires);
-     }
+    }
+
+    private async Task TryGenerateDemoTransactionsAsync(Merchant merchant, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _demoTransactionGenerator.GenerateTransactionsForMerchantAsync(merchant, 5, cancellationToken);
+        }
+        catch
+        {
+            // Do not prevent login if demo generation fails.
+        }
+    }
 
 
      private static string HashPassword(string password)

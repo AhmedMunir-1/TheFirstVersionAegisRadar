@@ -97,6 +97,57 @@ public class TransactionsController : ControllerBase
         return Ok(ApiResponse<TransactionResponseDto>.Ok(response));
     }
 
+    /// <summary>
+    /// Generate demo transactions for testing real-time updates.
+    /// This endpoint creates random transactions streamed to Kafka for processing.
+    /// </summary>
+    [HttpPost("generate-demo")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+    [ProducesResponseType(401)]
+    public async Task<IActionResult> GenerateDemo([FromQuery] int count = 5, CancellationToken ct = default)
+    {
+        var merchantId = GetMerchantIdFromToken();
+        if (merchantId == Guid.Empty) return Unauthorized();
+
+        var random = new Random();
+        var currencies = new[] { "USD", "EUR", "GBP", "JPY", "AED" };
+        var countries = new[] { "US", "UK", "DE", "FR", "JP", "EG", "AE" };
+        var mccs = new[] { 5411, 5412, 5691, 5999, 6010, 6211, 7011 };
+
+        var created = 0;
+        for (int i = 0; i < count; i++)
+        {
+            try
+            {
+                var request = new TransactionRequestDto(
+                    CustomerId: $"DEMO-{Guid.NewGuid().ToString().Substring(0, 8)}",
+                    Amount: (decimal)(random.NextDouble() * 5000 + 10),
+                    Currency: currencies[random.Next(currencies.Length)],
+                    Country: countries[random.Next(countries.Length)],
+                    Mcc: mccs[random.Next(mccs.Length)],
+                    DeviceId: Guid.NewGuid().ToString(),
+                    IpAddress: $"192.168.{random.Next(256)}.{random.Next(256)}"
+                );
+
+                var command = new SubmitTransactionCommand(merchantId, "EG", request);
+                await _mediator.Send(command, ct);
+                created++;
+
+                // Small delay to spread out Kafka events
+                await Task.Delay(100, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate demo transaction {Index}", i);
+            }
+        }
+
+        return Ok(ApiResponse<object>.Ok(
+            new { generated = created, requested = count },
+            $"{created} transactions generated successfully"));
+    }
+
     private Guid GetMerchantIdFromToken()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ??

@@ -11,36 +11,31 @@ namespace AegisRadar.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "EmailVerificationCode",
-                table: "Merchants",
-                type: "nvarchar(max)",
-                nullable: true);
+            // Add columns only if they don't already exist (idempotent)
+            migrationBuilder.Sql(
+                @"IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                               WHERE TABLE_NAME = 'Merchants' AND COLUMN_NAME = 'EmailVerificationCode')
+                  ALTER TABLE [Merchants] ADD [EmailVerificationCode] nvarchar(max) NULL;");
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "EmailVerificationExpires",
-                table: "Merchants",
-                type: "datetime2",
-                nullable: true);
+            migrationBuilder.Sql(
+                @"IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                               WHERE TABLE_NAME = 'Merchants' AND COLUMN_NAME = 'EmailVerificationExpires')
+                  ALTER TABLE [Merchants] ADD [EmailVerificationExpires] datetime2 NULL;");
 
-            migrationBuilder.AddColumn<bool>(
-                name: "IsEmailConfirmed",
-                table: "Merchants",
-                type: "bit",
-                nullable: false,
-                defaultValue: false);
+            migrationBuilder.Sql(
+                @"IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                               WHERE TABLE_NAME = 'Merchants' AND COLUMN_NAME = 'IsEmailConfirmed')
+                  ALTER TABLE [Merchants] ADD [IsEmailConfirmed] bit NOT NULL DEFAULT 0;");
 
-            migrationBuilder.AddColumn<string>(
-                name: "PasswordResetCode",
-                table: "Merchants",
-                type: "nvarchar(max)",
-                nullable: true);
+            migrationBuilder.Sql(
+                @"IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                               WHERE TABLE_NAME = 'Merchants' AND COLUMN_NAME = 'PasswordResetCode')
+                  ALTER TABLE [Merchants] ADD [PasswordResetCode] nvarchar(max) NULL;");
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "PasswordResetExpires",
-                table: "Merchants",
-                type: "datetime2",
-                nullable: true);
+            migrationBuilder.Sql(
+                @"IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                               WHERE TABLE_NAME = 'Merchants' AND COLUMN_NAME = 'PasswordResetExpires')
+                  ALTER TABLE [Merchants] ADD [PasswordResetExpires] datetime2 NULL;");
         }
 
         /// <inheritdoc />

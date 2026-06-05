@@ -1,265 +1,292 @@
-import { useEffect, useState } from "react";
-import { fetchApi } from "@/lib/api";
-import { useSignalR } from "@/hooks/useSignalR";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, AlertTriangle, CheckCircle, XCircle, TrendingUp } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from "recharts";
+import { useDashboardStore, type ChartDataPoint } from "@/store/dashboardStore";
+import { signalRService, type Transaction } from "@/services/signalRService";
+import { TimeRangeSelector, type TimeRange } from "@/components/TimeRangeSelector";
+import { StatsBar } from "@/components/StatsBar";
+import { LiveTransactionFeed } from "@/components/LiveTransactionFeed";
+import { AlertsPanel } from "@/components/AlertsPanel";
+import { TransactionVolumeChart } from "@/components/charts/TransactionVolumeChart";
+import { FraudProbabilityChart } from "@/components/charts/FraudProbabilityChart";
+import { TransactionAmountChart } from "@/components/charts/TransactionAmountChart";
+import { FraudDecisionDonut } from "@/components/charts/FraudDecisionDonut";
+import { GeographyBarChart } from "@/components/charts/GeographyBarChart";
+import { Bell, Wifi, WifiOff } from "lucide-react";
 
-interface Stats {
-  totalTransactionsToday: number;
-  flaggedTransactions: number;
-  blockedTransactions: number;
-  accuracyRate: number;
-}
 
-interface Trend {
-  date: string;
-  totalCount: number;
-  fraudCount: number;
-}
+const VITE_API_URL = import.meta.env.VITE_API_URL || "http://localhost:5099";
 
-interface Transaction {
-  id: string;
-  amount: number;
-  riskScore: number;
-  decision: string;
-  createdAt: string;
-}
+// Generate mock chart data for development
+const generateMockChartData = (range: TimeRange, existingData: ChartDataPoint[] = []): ChartDataPoint[] => {
+  const dataPoints = range === "1H" || range === "6H" || range === "24H" ? 60 : range === "7D" ? 7 : range === "30D" ? 30 : 365;
+  const now = new Date();
+  const data: ChartDataPoint[] = [];
 
-interface Alert {
-  id: string;
-  message: string;
-  severity: string;
-  createdAt: string;
-}
+  for (let i = dataPoints - 1; i >= 0; i--) {
+    const date = new Date(now);
+    if (range === "1H") date.setMinutes(date.getMinutes() - i);
+    else if (range === "6H") date.setMinutes(date.getMinutes() - i * 6);
+    else if (range === "24H") date.setHours(date.getHours() - i);
+    else if (range === "7D") date.setDate(date.getDate() - i);
+    else if (range === "30D") date.setDate(date.getDate() - i);
+    else date.setFullYear(date.getFullYear() - i);
 
-const Dashboard = () => {
-  useSignalR(); // Initialize SignalR connection
-  
-  const { user } = useAuth();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [trends, setTrends] = useState<Trend[]>([]);
-  const [recent, setRecent] = useState<Transaction[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [trialCountdown, setTrialCountdown] = useState<string>("");
+    const timestamp = range === "24H" || range === "6H" || range === "1H"
+      ? date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
+      : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+    data.push({
+      timestamp,
+      transactionCount: Math.floor(Math.random() * 50) + 10,
+      fraudCount: Math.floor(Math.random() * 15) + 2,
+      totalAmount: Math.random() * 100000 + 10000,
+      avgFraudProbability: Math.random() * 0.5 + 0.2,
+    });
+  }
+
+  return data;
+};
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const store = useDashboardStore();
+  const [selectedRange, setSelectedRange] = useState<TimeRange>("24H");
+  const [isLoadingChartData, setIsLoadingChartData] = useState(false);
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const chartUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize SignalR connection
   useEffect(() => {
-    if (!user?.trialEndDate) {
-      setTrialCountdown("");
+    if (!user) {
+      navigate("/login");
       return;
     }
 
-    const updateCountdown = () => {
-      const end = new Date(user.trialEndDate).getTime();
-      const diff = end - Date.now();
-      if (diff <= 0) {
-        setTrialCountdown("Trial expired");
-        return;
+    const initSignalR = async () => {
+      try {
+        await signalRService.connect();
+      } catch (error) {
+        console.error("Failed to connect to SignalR:", error);
       }
-
-      const totalSeconds = Math.floor(diff / 1000);
-      const days = Math.floor(totalSeconds / 86400);
-      const hours = Math.floor((totalSeconds % 86400) / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-
-      setTrialCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
     };
 
-    updateCountdown();
-    const timer = setInterval(updateCountdown, 1000);
-    return () => clearInterval(timer);
-  }, [user?.trialEndDate]);
+    initSignalR();
 
+    // Subscribe to SignalR events
+    const unsubscribeTransaction = signalRService.onTransactionReceived((transaction) => {
+      store.addTransaction(transaction);
+      // Update current minute bucket in chart data
+      updateCurrentMinuteBucket(transaction);
+    });
+
+    const unsubscribeAlert = signalRService.onAlertCreated((alert) => {
+      store.addAlert(alert);
+    });
+
+    const unsubscribeStatus = signalRService.onConnectionStatusChanged((status) => {
+      store.setSignalRStatus(status);
+    });
+
+    return () => {
+      unsubscribeTransaction();
+      unsubscribeAlert();
+      unsubscribeStatus();
+    };
+  }, [user, navigate, store]);
+
+  // Load initial chart data based on selected range
   useEffect(() => {
-    const loadData = async () => {
-      const [statsRes, trendsRes, recentRes, alertsRes] = await Promise.all([
-        fetchApi<Stats>("/api/dashboard/stats"),
-        fetchApi<Trend[]>("/api/dashboard/trends?days=7"),
-        fetchApi<Transaction[]>("/api/dashboard/recent?count=5"),
-        fetchApi<Alert[]>("/api/alerts?unreadOnly=true")
-      ]);
-
-      if (statsRes.success && statsRes.data) setStats(statsRes.data);
-      if (trendsRes.success && trendsRes.data) setTrends(trendsRes.data);
-      if (recentRes.success && Array.isArray(recentRes.data)) {
-        const mapped = recentRes.data.map((tx: any) => ({
-          id: tx.id,
-          amount: tx.amount,
-          riskScore: tx.prediction?.fraudProbability ?? (tx.status?.toLowerCase() === 'blocked' ? 0.95 : tx.status?.toLowerCase() === 'review' ? 0.5 : 0.05),
-          decision: tx.prediction?.decision?.toLowerCase() ?? tx.status?.toLowerCase() ?? 'approved',
-          createdAt: tx.createdAt
-        }));
-        setRecent(mapped);
+    const loadChartData = async () => {
+      setIsLoadingChartData(true);
+      try {
+        // In production, fetch from API based on range
+        // For now, use mock data
+        const data = generateMockChartData(selectedRange);
+        setChartData(data);
+      } catch (error) {
+        console.error("Failed to load chart data:", error);
+        // Fallback to mock data
+        setChartData(generateMockChartData(selectedRange));
+      } finally {
+        setIsLoadingChartData(false);
       }
-      if (alertsRes.success && alertsRes.data) setAlerts(alertsRes.data.slice(0, 5)); // Just show top 5 unread
     };
 
-    loadData();
-    
-    // Poll every 15 seconds to keep dashboard fresh
-    const interval = setInterval(loadData, 15000);
-    return () => clearInterval(interval);
+    loadChartData();
+  }, [selectedRange]);
+
+  // Update current minute bucket with new transaction
+  const updateCurrentMinuteBucket = useCallback((transaction: Transaction) => {
+    setChartData((prev) => {
+      if (prev.length === 0) return prev;
+
+      const updated = [...prev];
+      const lastPoint = updated[updated.length - 1];
+
+      // Update the last data point
+      lastPoint.transactionCount += 1;
+      lastPoint.totalAmount += transaction.amount;
+
+      if (transaction.fraudProbability > 0.5) {
+        lastPoint.fraudCount += 1;
+      }
+
+      // Recalculate average fraud probability
+      const avgFraud = (lastPoint.fraudCount + (lastPoint.transactionCount - lastPoint.fraudCount) * 0.3) / lastPoint.transactionCount;
+      lastPoint.avgFraudProbability = Math.min(avgFraud, 1);
+
+      return updated;
+    });
   }, []);
 
-  const trialActive = Boolean(user?.isTrialActive && user?.trialEndDate && new Date(user.trialEndDate) > new Date());
+  // Auto-generate new data points every minute
+  useEffect(() => {
+    if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
+
+    if (selectedRange === "24H" || selectedRange === "6H" || selectedRange === "1H") {
+      chartUpdateIntervalRef.current = setInterval(() => {
+        setChartData((prev) => {
+          if (prev.length === 0) return prev;
+
+          const updated = [...prev];
+          const now = new Date();
+          const newTimestamp = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+          // Remove oldest and add new
+          updated.shift();
+          updated.push({
+            timestamp: newTimestamp,
+            transactionCount: Math.floor(Math.random() * 30) + 5,
+            fraudCount: Math.floor(Math.random() * 10) + 1,
+            totalAmount: Math.random() * 80000 + 5000,
+            avgFraudProbability: Math.random() * 0.4 + 0.2,
+          });
+
+          return updated;
+        });
+      }, 60000); // Every minute
+    }
+
+    return () => {
+      if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
+    };
+  }, [selectedRange]);
+
+  const unreadAlerts = store.alerts.filter((a) => !a.isRead).length;
 
   return (
-    <div className="space-y-6">
-      {user?.trialEndDate && (
-        <Card className={`bg-card-gradient border-border shadow-sm ${trialActive ? "border-green-400/30" : "border-red-400/30"}`}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Free Trial</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm text-muted-foreground mb-2">14-day trial ends on</div>
-            <div className="text-3xl font-bold">{trialActive ? trialCountdown : "Expired"}</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              {trialActive
-                ? `Ends ${new Date(user.trialEndDate).toLocaleDateString()}`
-                : "Your trial has ended. Upgrade to keep using AegisRadar."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-card-gradient border-border shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Transactions Today</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalTransactionsToday || 0}</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card-gradient border-border shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-yellow-500">Flagged</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.flaggedTransactions || 0}</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card-gradient border-border shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-red-500">Blocked</CardTitle>
-            <XCircle className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.blockedTransactions || 0}</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card-gradient border-border shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-green-500">Accuracy</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{(stats?.accuracyRate || 99.7)}%</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4 bg-card-gradient border-border shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-primary" />
-                Fraud Detection Trend
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pl-0">
-            <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trends} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <defs>
-                            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                            </linearGradient>
-                            <linearGradient id="colorFraud" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--destructive))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--destructive))" stopOpacity={0}/>
-                            </linearGradient>
-                        </defs>
-                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})} />
-                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}`} />
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                        <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                        <Area type="monotone" dataKey="totalCount" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorTotal)" name="Total" />
-                        <Area type="monotone" dataKey="fraudCount" stroke="hsl(var(--destructive))" fillOpacity={1} fill="url(#colorFraud)" name="Fraud" />
-                    </AreaChart>
-                </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="col-span-3 bg-card-gradient border-border shadow-sm">
-          <CardHeader>
-            <CardTitle>Recent Alerts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {alerts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No unread alerts.</p>
+    <div className="min-h-screen bg-[#0a0a0f]">
+      {/* Header */}
+      <header className="bg-slate-900/50 border-b border-slate-800 sticky top-0 z-40 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-white">
+              AegisRadar <span className="text-blue-500">Dashboard</span>
+            </h1>
+            <div className="ml-4 flex items-center gap-2 text-xs px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700">
+              {store.signalRStatus === "Connected" ? (
+                <>
+                  <Wifi className="w-3 h-3 text-green-400" />
+                  <span className="text-green-400 font-medium">Live</span>
+                </>
               ) : (
-                  alerts.map(alert => (
-                      <div key={alert.id} className="flex items-start gap-4 p-3 rounded-lg bg-background/50 border border-border">
-                          <AlertTriangle className={`w-5 h-5 shrink-0 ${alert.severity === 'High' ? 'text-red-500' : 'text-yellow-500'}`} />
-                          <div className="space-y-1">
-                              <p className="text-sm font-medium leading-none">{alert.message}</p>
-                              <p className="text-xs text-muted-foreground">{new Date(alert.createdAt).toLocaleString()}</p>
-                          </div>
-                      </div>
-                  ))
+                <>
+                  <WifiOff className="w-3 h-3 text-red-400" />
+                  <span className="text-red-400 font-medium">{store.signalRStatus}</span>
+                </>
               )}
             </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      <Card className="bg-card-gradient border-border shadow-sm">
-        <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <div className="rounded-md border border-border">
-                <div className="grid grid-cols-5 bg-muted/50 p-3 text-sm font-medium text-muted-foreground">
-                    <div>ID</div>
-                    <div>Amount</div>
-                    <div>Risk Score</div>
-                    <div>Decision</div>
-                    <div>Time</div>
-                </div>
-                <div className="divide-y divide-border">
-                    {recent.map(tx => (
-                        <div key={tx.id} className="grid grid-cols-5 p-3 text-sm items-center hover:bg-muted/20 transition-colors">
-                            <div className="font-mono text-muted-foreground truncate pr-2">{tx.id.split('-')[0]}</div>
-                            <div className="font-medium">{tx.amount.toFixed(2)}</div>
-                            <div>{(tx.riskScore * 100).toFixed(1)}%</div>
-                            <div>
-                                <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                                    tx.decision === 'approved' ? 'bg-green-500/10 text-green-400' :
-                                    tx.decision === 'review' ? 'bg-yellow-500/10 text-yellow-400' :
-                                    'bg-red-500/10 text-red-400'
-                                }`}>
-                                    {tx.decision}
-                                </span>
-                            </div>
-                            <div className="text-muted-foreground">{new Date(tx.createdAt).toLocaleTimeString()}</div>
-                        </div>
-                    ))}
-                    {recent.length === 0 && (
-                        <div className="p-4 text-center text-sm text-muted-foreground">No recent transactions.</div>
-                    )}
-                </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-400">{user?.email}</span>
+            <button
+              onClick={logout}
+              className="text-sm px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-gray-300 transition-colors"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Disconnection Banner */}
+      {store.signalRStatus !== "Connected" && (
+        <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-6 py-3 flex items-center gap-3">
+          <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+          <span className="text-sm text-yellow-400">
+            Live updates paused — reconnecting...
+          </span>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Stats Bar */}
+        <div className="mb-8">
+          <StatsBar stats={store.stats} isLoading={false} />
+        </div>
+
+        {/* Time Range Selector */}
+        <div className="mb-8">
+          <TimeRangeSelector
+            selectedRange={selectedRange}
+            onRangeChange={setSelectedRange}
+            isLoading={isLoadingChartData}
+          />
+        </div>
+
+        {/* Charts Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Left Column - Main Charts (70%) */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Transaction Volume Chart */}
+            <TransactionVolumeChart data={chartData} isLoading={isLoadingChartData} />
+
+            {/* Two charts side by side */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FraudProbabilityChart data={chartData} isLoading={isLoadingChartData} />
+              <TransactionAmountChart data={chartData} isLoading={isLoadingChartData} />
             </div>
-        </CardContent>
-      </Card>
+
+            {/* Geography Chart */}
+            <GeographyBarChart transactions={store.transactions} isLoading={false} />
+          </div>
+
+          {/* Right Column - Decision Donut & Feed (30%) */}
+          <div className="space-y-6">
+            <FraudDecisionDonut transactions={store.transactions} isLoading={false} />
+          </div>
+        </div>
+
+        {/* Live Transaction Feed */}
+        <div className="mb-8">
+          <div className="h-96">
+            <LiveTransactionFeed transactions={store.transactions} isLoading={false} />
+          </div>
+        </div>
+      </main>
+
+      {/* Alerts Panel */}
+      <AlertsPanel
+        alerts={store.alerts}
+        onMarkAsRead={(alertId) => store.markAlertAsRead(alertId)}
+        onMarkAllAsRead={() => store.markAllAlertsAsRead()}
+        isLoading={false}
+      />
+
+      {/* Connection Status Indicator */}
+      <div className="fixed bottom-6 left-6 flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 border border-slate-800">
+        <div
+          className={`w-2 h-2 rounded-full ${
+            store.signalRStatus === "Connected" ? "bg-green-500" : "bg-red-500"
+          } ${store.signalRStatus === "Reconnecting" ? "animate-pulse" : ""}`}
+        ></div>
+        <span className="text-xs text-gray-400 font-medium">
+          {store.signalRStatus}
+        </span>
+      </div>
     </div>
   );
-};
-
-export default Dashboard;
+}

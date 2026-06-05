@@ -100,7 +100,12 @@ export default function DashboardLayout() {
             <SidebarTrigger className="-ml-1" />
             <div className="w-full flex justify-between items-center px-4">
                 <h1 className="text-lg font-semibold capitalize">
-                    {location.pathname.split('/').pop() === 'dashboard' ? 'Overview' : location.pathname.split('/').pop()}
+                    {(() => {
+                      const lastPath = location.pathname.split('/').pop();
+                      if (lastPath === 'dashboard' || lastPath === '') return 'Overview';
+                      if (lastPath === 'live-generator') return 'Live Generator';
+                      return lastPath;
+                    })()}
                 </h1>
             </div>
         </header>

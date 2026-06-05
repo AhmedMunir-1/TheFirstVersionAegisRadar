@@ -20,9 +20,10 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context, IUnitOfWork uow, ICacheService cache)
     {
-        // Only enforce on /api/transactions POST
+        // Only enforce on /api/transactions POST (but exclude /api/transactions/generate-demo)
         if (!context.Request.Path.StartsWithSegments("/api/transactions") ||
-             context.Request.Method != "POST")
+             context.Request.Method != "POST" ||
+             context.Request.Path.StartsWithSegments("/api/transactions/generate-demo"))
         {
             await _next(context);
             return;

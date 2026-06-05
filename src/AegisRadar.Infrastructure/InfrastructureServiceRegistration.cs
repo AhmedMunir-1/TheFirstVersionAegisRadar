@@ -10,12 +10,15 @@ using Hangfire.SqlServer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace AegisRadar.Infrastructure;
 
-// SQL Server configuration for local development and deployment
-// Connection string format: Server=server;Database=dbname;User Id=user;Password=pass;
+// ─────────────────────────────────────────────────────────────────────────────
+// All database connectivity targets SQL Server (sql.bsite.net / aspfreehosting).
+// Database name: ahmedmunir_AegisRadarDB
+// ─────────────────────────────────────────────────────────────────────────────
 
 public static class InfrastructureServiceRegistration
 {
@@ -23,11 +26,25 @@ public static class InfrastructureServiceRegistration
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException(
+                "DefaultConnection is not configured. " +
+                "Check appsettings.json → ConnectionStrings → DefaultConnection.");
+
         // ── EF Core / SQL Server ────────────────────────────────────────────
         services.AddDbContext<AegisRadarDbContext>(options =>
             options.UseSqlServer(
-                configuration.GetConnectionString("DefaultConnection"),
-                sqlServer => sqlServer.MigrationsAssembly(typeof(AegisRadarDbContext).Assembly.FullName)));
+                connectionString,
+                sqlServer =>
+                {
+                    sqlServer.MigrationsAssembly(typeof(AegisRadarDbContext).Assembly.FullName);
+                    // Retry on transient failures — important for shared hosting (sql.bsite.net)
+                    sqlServer.EnableRetryOnFailure(
+                        maxRetryCount: 5,
+                        maxRetryDelay: TimeSpan.FromSeconds(10),
+                        errorNumbersToAdd: null);
+                    sqlServer.CommandTimeout(60);
+                }));
 
         // ── Repositories & Unit of Work ────────────────────────────────────
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -38,17 +55,36 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<ITransactionHistoryRepository, TransactionHistoryRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-        // ── Redis ──────────────────────────────────────────────────────────
+        // ── Redis ───────────────────────────────────────────────────────────
+        // Falls back to a no-op in-memory stub if Redis is unavailable,
+        // so the API can still serve requests without a local Redis instance.
         var redisConnection = configuration.GetConnectionString("Redis") ?? "localhost:6379";
-        services.AddSingleton<IConnectionMultiplexer>(_ =>
-            ConnectionMultiplexer.Connect(redisConnection));
-        services.AddSingleton<ICacheService, RedisCacheService>();
+        try
+        {
+            var redisConfig = ConfigurationOptions.Parse(redisConnection);
+            redisConfig.ConnectTimeout     = 3000;   // 3 s — fail fast
+            redisConfig.SyncTimeout        = 3000;
+            redisConfig.AbortOnConnectFail = false;   // do NOT throw on startup
+
+            var multiplexer = ConnectionMultiplexer.Connect(redisConfig);
+            services.AddSingleton<IConnectionMultiplexer>(multiplexer);
+            services.AddSingleton<ICacheService, RedisCacheService>();
+        }
+        catch (Exception ex)
+        {
+            // Redis unavailable — register a no-op cache so the app keeps running
+            var logger = services.BuildServiceProvider()
+                .GetService<ILogger<InMemoryFallbackCacheService>>();
+            logger?.LogWarning(ex,
+                "Redis not reachable at '{Redis}'. Using in-memory fallback cache.", redisConnection);
+            services.AddSingleton<ICacheService, InMemoryFallbackCacheService>();
+        }
 
         // ── Kafka ──────────────────────────────────────────────────────────
         services.Configure<KafkaSettings>(configuration.GetSection("Kafka"));
         services.AddSingleton<IKafkaProducer, KafkaProducer>();
 
-        // ── External AI API HTTP Client ────────────────────────────────────────
+        // ── External AI API HTTP Client ────────────────────────────────────
         services.Configure<AiServiceSettings>(configuration.GetSection("AiService"));
         services.AddHttpClient<IFraudDetectionService, FraudDetectionService>(client =>
         {
@@ -57,30 +93,49 @@ public static class InfrastructureServiceRegistration
             client.Timeout     = TimeSpan.FromSeconds(10);
         });
 
-        // ── Email / SMTP
+        // ── Email / SMTP ───────────────────────────────────────────────────
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
         services.AddScoped<IEmailService, SmtpEmailService>();
 
         // ── Domain Services ────────────────────────────────────────────────
         services.AddScoped<IFeatureEngineeringService, FeatureEngineeringService>();
         services.AddScoped<INotificationService, SignalRNotificationService>();
+        services.AddScoped<IDemoTransactionGenerator, DemoTransactionGenerator>();
 
         // ── Auth ───────────────────────────────────────────────────────────
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
         services.AddScoped<ITokenService, TokenService>();
 
-        // ── Hangfire ───────────────────────────────────────────────────────
-        services.AddHangfire(config => config
-            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-            .UseSimpleAssemblyNameTypeSerializer()
-            .UseRecommendedSerializerSettings()
-            .UseSqlServerStorage(configuration.GetConnectionString("DefaultConnection")));
+        // ── Hangfire (SQL Server storage, same DB) ─────────────────────────
+        // FIX: AddHangfireServer() was removed previously, causing background
+        //      jobs to never execute. Restored with graceful error handling so
+        //      the app can still start even if the DB is temporarily unavailable.
+        try
+        {
+            services.AddHangfire(config => config
+                .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseSqlServerStorage(connectionString, new SqlServerStorageOptions
+                {
+                    CommandBatchMaxTimeout       = TimeSpan.FromMinutes(5),
+                    SlidingInvisibilityTimeout   = TimeSpan.FromMinutes(5),
+                    QueuePollInterval            = TimeSpan.Zero,
+                    UseRecommendedIsolationLevel = true,
+                    DisableGlobalLocks           = true
+                }));
 
-        // NOTE: AddHangfireServer() removed to allow app startup when database is unavailable
-        // It will be registered later in Program.cs with error handling
-        // services.AddHangfireServer();
+            services.AddHangfireServer(opts =>
+            {
+                opts.WorkerCount = 2;  // low footprint — shared hosting
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"⚠ Hangfire could not be initialised (DB may not exist yet): {ex.Message}");
+        }
 
         return services;
     }
-
 }
