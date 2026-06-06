@@ -70,6 +70,14 @@ public class TransactionConsumerService : BackgroundService
                 var evt = JsonSerializer.Deserialize<TransactionCreatedEvent>(result.Message.Value);
                 if (evt is null) continue;
 
+                // Skip invalid events with null merchant
+                if (evt.MerchantId == Guid.Empty)
+                {
+                    _logger.LogWarning("Skipping TransactionCreatedEvent with empty MerchantId: {TransactionId}", evt.TransactionId);
+                    consumer.Commit(result);
+                    continue;
+                }
+
                 _logger.LogInformation("Consumed TransactionCreatedEvent {TransactionId}", evt.TransactionId);
 
                 await ProcessTransactionAsync(evt, stoppingToken);
@@ -96,23 +104,30 @@ public class TransactionConsumerService : BackgroundService
 
         try
         {
-            // 0. Create and save transaction entity first
-            var transaction = new Transaction
+            // 0. Get or create transaction entity
+            // The transaction may already exist if it was created by SubmitTransactionCommand
+            var transaction = await uow.Transactions.GetByIdAsync(evt.TransactionId, ct);
+            
+            if (transaction is null)
             {
-                Id = evt.TransactionId,
-                MerchantId = evt.MerchantId,
-                CustomerId = evt.CustomerId,
-                Amount = evt.Amount,
-                Currency = evt.Currency,
-                Country = evt.TransactionCountry,
-                Mcc = evt.Mcc,
-                DeviceId = evt.DeviceId,
-                IpAddress = evt.IpAddress,
-                Status = TransactionStatus.Pending,
-                CreatedAt = evt.CreatedAt
-            };
-            await uow.Transactions.AddAsync(transaction, ct);
-            await uow.SaveChangesAsync(ct);
+                // Transaction doesn't exist yet, create it
+                transaction = new Transaction
+                {
+                    Id = evt.TransactionId,
+                    MerchantId = evt.MerchantId,
+                    CustomerId = evt.CustomerId,
+                    Amount = evt.Amount,
+                    Currency = evt.Currency,
+                    Country = evt.TransactionCountry,
+                    Mcc = evt.Mcc,
+                    DeviceId = evt.DeviceId,
+                    IpAddress = evt.IpAddress,
+                    Status = TransactionStatus.Pending,
+                    CreatedAt = evt.CreatedAt
+                };
+                await uow.Transactions.AddAsync(transaction, ct);
+                await uow.SaveChangesAsync(ct);
+            }
 
             // 1. Compute 8 fraud features
             var features = await featureSvc.ComputeFeaturesAsync(

@@ -198,9 +198,11 @@ public static class DbSeeder
             // ── Demo Merchant ───────────────────────────────────────────────
             Console.WriteLine("[DbSeeder] Checking for existing merchants...");
             var demoMerchantId = Guid.Parse("22222222-0000-0000-0000-000000000001");
-            if (!await context.Merchants.AnyAsync())
+            var demoMerchantExists = await context.Merchants.AnyAsync(m => m.Id == demoMerchantId);
+            
+            if (!demoMerchantExists)
             {
-                Console.WriteLine("[DbSeeder] No merchants found, creating demo merchant...");
+                Console.WriteLine("[DbSeeder] No demo merchant found, creating demo merchant...");
                 var starterPlanId  = Guid.Parse("11111111-0000-0000-0000-000000000001");
 
                 var merchant = new Merchant
@@ -234,6 +236,10 @@ public static class DbSeeder
 
                 await context.SaveChangesAsync();
                 Console.WriteLine("✓ Demo merchant seeded. Email: demo@aegisradar.io | Password: Demo@1234 | ApiKey: ar_demo_key_aegisradar_2024_secure");
+            }
+            else
+            {
+                Console.WriteLine("[DbSeeder] Demo merchant already exists, skipping creation.");
             }
 
             // ── Demo Transactions ───────────────────────────────────────

@@ -1,61 +1,119 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import type { Transaction, Alert } from "@/services/signalRService";
-
-export interface ChartDataPoint {
-  timestamp: string;
-  transactionCount: number;
-  fraudCount: number;
-  totalAmount: number;
-  avgFraudProbability: number;
-}
-
-export interface DashboardStats {
-  totalTransactionsToday: number;
-  totalAmountToday: number;
-  fraudRateToday: number;
-  blockedCount: number;
-  approvedCount: number;
-  pendingReviewCount: number;
-  avgProcessingTimeMs: number;
-}
+import { apiClient } from "@/services/apiClient";
+import type {
+  DashboardStatsDto,
+  FraudTrendDto,
+  TransactionResponseDto,
+  ChartDataPoint,
+} from "@/types/api";
 
 export interface DashboardState {
   // Data
-  transactions: Transaction[];
-  alerts: Alert[];
-  stats: DashboardStats;
+  transactions: TransactionResponseDto[];
+  stats: DashboardStatsDto | null;
+  trends: FraudTrendDto[];
   chartData: ChartDataPoint[];
   signalRStatus: "Connecting" | "Connected" | "Disconnected" | "Reconnecting";
+  isLoading: boolean;
+  error: string | null;
 
   // Actions
-  addTransaction: (transaction: Transaction) => void;
-  addAlert: (alert: Alert) => void;
-  markAlertAsRead: (alertId: string) => void;
-  markAllAlertsAsRead: () => void;
+  loadInitialData: () => Promise<void>;
+  addTransaction: (transaction: TransactionResponseDto) => void;
+  updateTransaction: (id: string, updates: Partial<TransactionResponseDto>) => void;
   setChartData: (data: ChartDataPoint[]) => void;
-  updateStats: (stats: Partial<DashboardStats>) => void;
+  updateCurrentMinuteBucket: (transaction: TransactionResponseDto) => void;
   setSignalRStatus: (status: DashboardState["signalRStatus"]) => void;
+  loadHistoricalTrends: (days: number) => Promise<void>;
+  setStats: (stats: DashboardStatsDto) => void;
   reset: () => void;
 }
 
-const initialStats: DashboardStats = {
-  totalTransactionsToday: 0,
-  totalAmountToday: 0,
-  fraudRateToday: 0,
-  blockedCount: 0,
-  approvedCount: 0,
-  pendingReviewCount: 0,
-  avgProcessingTimeMs: 0,
+const generateMockChartData = (range: "1H" | "6H" | "24H" | "7D" | "30D" | "1Y" | "5Y"): ChartDataPoint[] => {
+  const dataPoints = 
+    range === "1H" ? 60 :
+    range === "6H" ? 60 :
+    range === "24H" ? 24 :
+    range === "7D" ? 7 :
+    range === "30D" ? 30 :
+    range === "1Y" ? 52 : 60;
+
+  const now = new Date();
+  const data: ChartDataPoint[] = [];
+
+  for (let i = dataPoints - 1; i >= 0; i--) {
+    const date = new Date(now);
+    if (range === "1H") date.setMinutes(date.getMinutes() - i);
+    else if (range === "6H") date.setMinutes(date.getMinutes() - i * 6);
+    else if (range === "24H") date.setHours(date.getHours() - i);
+    else if (range === "7D") date.setDate(date.getDate() - i);
+    else if (range === "30D") date.setDate(date.getDate() - i);
+    else date.setFullYear(date.getFullYear() - i);
+
+    const timestamp =
+      range === "24H" || range === "6H" || range === "1H"
+        ? date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
+        : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    data.push({
+      timestamp,
+      transactionCount: Math.floor(Math.random() * 50) + 10,
+      fraudCount: Math.floor(Math.random() * 15) + 2,
+      totalAmount: Math.random() * 100000 + 10000,
+      avgFraudProbability: Math.random() * 0.5 + 0.2,
+    });
+  }
+
+  return data;
 };
 
 export const useDashboardStore = create<DashboardState>()(
-  immer((set) => ({
+  immer((set, get) => ({
     transactions: [],
-    alerts: [],
-    stats: initialStats,
+    stats: null,
+    trends: [],
     chartData: [],
     signalRStatus: "Disconnected",
+    isLoading: false,
+    error: null,
+
+    loadInitialData: async () => {
+      set((state) => {
+        state.isLoading = true;
+        state.error = null;
+      });
+
+      try {
+        const [stats, trends, recent] = await Promise.all([
+          apiClient.dashboard.getStats(),
+          apiClient.dashboard.getTrends(7),
+          apiClient.dashboard.getRecent(50),
+        ]);
+
+        set((state) => {
+          state.stats = stats;
+          state.trends = trends;
+          state.transactions = recent;
+          state.isLoading = false;
+          // Generate initial chart data from trends
+          state.chartData = trends.map((trend) => ({
+            timestamp: new Date(trend.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            transactionCount: trend.transactionCount,
+            fraudCount: trend.fraudCount,
+            totalAmount: trend.totalAmount,
+            avgFraudProbability: trend.avgFraudProbability,
+          }));
+        });
+      } catch (error) {
+        set((state) => {
+          state.error = error instanceof Error ? error.message : "Failed to load dashboard data";
+          state.isLoading = false;
+          // Fallback to mock data
+          state.chartData = generateMockChartData("24H");
+        });
+      }
+    },
 
     addTransaction: (transaction) => {
       set((state) => {
@@ -68,53 +126,29 @@ export const useDashboardStore = create<DashboardState>()(
         }
 
         // Update stats
-        state.stats.totalTransactionsToday += 1;
-        state.stats.totalAmountToday += transaction.amount;
+        if (state.stats) {
+          state.stats.totalTransactionsToday += 1;
+          state.stats.totalAmountToday += transaction.amount;
 
-        // Update status counts
-        if (transaction.status === "Approved") state.stats.approvedCount += 1;
-        if (transaction.status === "Blocked") state.stats.blockedCount += 1;
-        if (transaction.status === "Review") state.stats.pendingReviewCount += 1;
+          // Update status counts
+          if (transaction.status === "Approved") state.stats.approvedCount += 1;
+          if (transaction.status === "Blocked") state.stats.blockedCount += 1;
+          if (transaction.status === "Review") state.stats.pendingReviewCount += 1;
 
-        // Update fraud rate
-        const totalFraudRisk = state.transactions
-          .slice(0, 100)
-          .reduce((sum, t) => sum + t.fraudProbability, 0);
-        state.stats.fraudRateToday = (totalFraudRisk / Math.min(state.transactions.length, 100)) * 100;
-
-        // Update average processing time
-        const avgTime =
-          state.transactions.slice(0, 100).reduce((sum, t) => sum + t.processingTimeMs, 0) /
-          Math.min(state.transactions.length, 100);
-        state.stats.avgProcessingTimeMs = Math.round(avgTime);
-      });
-    },
-
-    addAlert: (alert) => {
-      set((state) => {
-        state.alerts.unshift(alert);
-
-        // Keep only last 100 alerts
-        if (state.alerts.length > 100) {
-          state.alerts = state.alerts.slice(0, 100);
+          // Update fraud rate based on recent transactions
+          const recentTxs = state.transactions.slice(0, 100);
+          const fraudCount = recentTxs.filter((t) => (t.prediction?.fraudProbability || 0) > 0.5).length;
+          state.stats.fraudRateToday = (fraudCount / recentTxs.length) * 100;
         }
       });
     },
 
-    markAlertAsRead: (alertId) => {
+    updateTransaction: (id: string, updates) => {
       set((state) => {
-        const alert = state.alerts.find((a) => a.id === alertId);
-        if (alert) {
-          alert.isRead = true;
+        const idx = state.transactions.findIndex((t) => t.id === id);
+        if (idx !== -1) {
+          state.transactions[idx] = { ...state.transactions[idx], ...updates };
         }
-      });
-    },
-
-    markAllAlertsAsRead: () => {
-      set((state) => {
-        state.alerts.forEach((alert) => {
-          alert.isRead = true;
-        });
       });
     },
 
@@ -124,9 +158,24 @@ export const useDashboardStore = create<DashboardState>()(
       });
     },
 
-    updateStats: (stats) => {
+    updateCurrentMinuteBucket: (transaction) => {
       set((state) => {
-        state.stats = { ...state.stats, ...stats };
+        if (state.chartData.length === 0) return;
+
+        const lastPoint = state.chartData[state.chartData.length - 1];
+        lastPoint.transactionCount += 1;
+        lastPoint.totalAmount += transaction.amount;
+
+        if ((transaction.prediction?.fraudProbability || 0) > 0.5) {
+          lastPoint.fraudCount += 1;
+        }
+
+        // Recalculate average fraud probability
+        const totalFraud =
+          state.chartData.reduce((sum, p) => sum + p.fraudCount, 0);
+        const totalTxs =
+          state.chartData.reduce((sum, p) => sum + p.transactionCount, 0);
+        lastPoint.avgFraudProbability = totalTxs > 0 ? totalFraud / totalTxs : 0;
       });
     },
 
@@ -136,14 +185,51 @@ export const useDashboardStore = create<DashboardState>()(
       });
     },
 
+    loadHistoricalTrends: async (days: number) => {
+      set((state) => {
+        state.isLoading = true;
+        state.error = null;
+      });
+
+      try {
+        const trends = await apiClient.dashboard.getTrends(days);
+        set((state) => {
+          state.trends = trends;
+          state.chartData = trends.map((trend) => ({
+            timestamp: new Date(trend.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            transactionCount: trend.transactionCount,
+            fraudCount: trend.fraudCount,
+            totalAmount: trend.totalAmount,
+            avgFraudProbability: trend.avgFraudProbability,
+          }));
+          state.isLoading = false;
+        });
+      } catch (error) {
+        set((state) => {
+          state.error = error instanceof Error ? error.message : "Failed to load trends";
+          state.isLoading = false;
+        });
+      }
+    },
+
+    setStats: (stats) => {
+      set((state) => {
+        state.stats = stats;
+      });
+    },
+
     reset: () => {
       set((state) => {
         state.transactions = [];
-        state.alerts = [];
-        state.stats = initialStats;
+        state.stats = null;
+        state.trends = [];
         state.chartData = [];
         state.signalRStatus = "Disconnected";
+        state.isLoading = false;
+        state.error = null;
       });
     },
   }))
 );
+
+export type { ChartDataPoint };

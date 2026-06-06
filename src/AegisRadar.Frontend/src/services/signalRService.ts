@@ -1,47 +1,17 @@
 import * as signalR from "@microsoft/signalr";
+import type {
+  TransactionResponseDto,
+  AlertDto,
+  FraudDetectedEvent,
+  TransactionResolvedEvent,
+} from "@/types/api";
 
 export type ConnectionStatus = "Connecting" | "Connected" | "Disconnected" | "Reconnecting";
 
-export interface Transaction {
-  id: string;
-  amount: number;
-  currency: string;
-  status: "Approved" | "Blocked" | "Review" | "Pending";
-  fraudProbability: number;
-  merchantName: string;
-  country: string;
-  createdAt: string;
-  processingTimeMs: number;
-}
-
-export interface Prediction {
-  transactionId: string;
-  fraudProbability: number;
-  riskLevel: "Low" | "Medium" | "High" | "Critical";
-  completedAt: string;
-}
-
-export interface Alert {
-  id: string;
-  type: "Fraud" | "Anomaly" | "Threshold" | "Manual";
-  severity: "Low" | "Medium" | "High" | "Critical";
-  title: string;
-  description: string;
-  transactionId: string;
-  createdAt: string;
-  isRead: boolean;
-}
-
-export interface TransactionResolved {
-  transactionId: string;
-  finalStatus: "Approved" | "Blocked";
-  resolvedAt: string;
-}
-
-type TransactionCallback = (transaction: Transaction) => void;
-type PredictionCallback = (prediction: Prediction) => void;
-type AlertCallback = (alert: Alert) => void;
-type ResolvedCallback = (resolved: TransactionResolved) => void;
+type TransactionCallback = (transaction: TransactionResponseDto) => void;
+type AlertCallback = (alert: AlertDto) => void;
+type FraudDetectedCallback = (data: FraudDetectedEvent) => void;
+type TransactionResolvedCallback = (data: TransactionResolvedEvent) => void;
 type StatusCallback = (status: ConnectionStatus) => void;
 
 class SignalRService {
@@ -49,9 +19,9 @@ class SignalRService {
   private connectionStatus: ConnectionStatus = "Disconnected";
   private statusCallbacks: Set<StatusCallback> = new Set();
   private transactionCallbacks: Set<TransactionCallback> = new Set();
-  private predictionCallbacks: Set<PredictionCallback> = new Set();
+  private fraudDetectedCallbacks: Set<FraudDetectedCallback> = new Set();
   private alertCallbacks: Set<AlertCallback> = new Set();
-  private resolvedCallbacks: Set<ResolvedCallback> = new Set();
+  private transactionResolvedCallbacks: Set<TransactionResolvedCallback> = new Set();
 
   async connect(): Promise<void> {
     if (this.connection?.state === signalR.HubConnectionState.Connected) {
@@ -61,7 +31,7 @@ class SignalRService {
     try {
       this.setStatus("Connecting");
 
-      const token = localStorage.getItem("authToken");
+      const token = localStorage.getItem("aegis_token");
       if (!token) {
         throw new Error("No authentication token found");
       }
@@ -90,21 +60,30 @@ class SignalRService {
         this.setStatus("Disconnected");
       });
 
-      // Register event listeners
-      this.connection.on("TransactionReceived", (transaction: Transaction) => {
+      this.connection.on("TransactionProcessed", (transaction: TransactionResponseDto) => {
         this.transactionCallbacks.forEach((cb) => cb(transaction));
       });
 
-      this.connection.on("PredictionCompleted", (prediction: Prediction) => {
-        this.predictionCallbacks.forEach((cb) => cb(prediction));
+      // Also listen to backend's TransactionUpdated event (from PredictionConsumerService)
+      this.connection.on("TransactionUpdated", (transaction: TransactionResponseDto) => {
+        this.transactionCallbacks.forEach((cb) => cb(transaction));
       });
 
-      this.connection.on("AlertCreated", (alert: Alert) => {
+      this.connection.on("FraudDetected", (data: FraudDetectedEvent) => {
+        this.fraudDetectedCallbacks.forEach((cb) => cb(data));
+      });
+
+      this.connection.on("AlertCreated", (alert: AlertDto) => {
         this.alertCallbacks.forEach((cb) => cb(alert));
       });
 
-      this.connection.on("TransactionResolved", (resolved: TransactionResolved) => {
-        this.resolvedCallbacks.forEach((cb) => cb(resolved));
+      // Also listen to backend's FraudAlertReceived event
+      this.connection.on("FraudAlertReceived", (alert: AlertDto) => {
+        this.alertCallbacks.forEach((cb) => cb(alert));
+      });
+
+      this.connection.on("TransactionResolved", (data: TransactionResolvedEvent) => {
+        this.transactionResolvedCallbacks.forEach((cb) => cb(data));
       });
 
       await this.connection.start();
@@ -124,14 +103,14 @@ class SignalRService {
     }
   }
 
-  onTransactionReceived(callback: TransactionCallback): () => void {
+  onTransactionProcessed(callback: TransactionCallback): () => void {
     this.transactionCallbacks.add(callback);
     return () => this.transactionCallbacks.delete(callback);
   }
 
-  onPredictionCompleted(callback: PredictionCallback): () => void {
-    this.predictionCallbacks.add(callback);
-    return () => this.predictionCallbacks.delete(callback);
+  onFraudDetected(callback: FraudDetectedCallback): () => void {
+    this.fraudDetectedCallbacks.add(callback);
+    return () => this.fraudDetectedCallbacks.delete(callback);
   }
 
   onAlertCreated(callback: AlertCallback): () => void {
@@ -139,9 +118,9 @@ class SignalRService {
     return () => this.alertCallbacks.delete(callback);
   }
 
-  onTransactionResolved(callback: ResolvedCallback): () => void {
-    this.resolvedCallbacks.add(callback);
-    return () => this.resolvedCallbacks.delete(callback);
+  onTransactionResolved(callback: TransactionResolvedCallback): () => void {
+    this.transactionResolvedCallbacks.add(callback);
+    return () => this.transactionResolvedCallbacks.delete(callback);
   }
 
   onConnectionStatusChanged(callback: StatusCallback): () => void {
@@ -165,3 +144,4 @@ class SignalRService {
 
 // Singleton instance
 export const signalRService = new SignalRService();
+

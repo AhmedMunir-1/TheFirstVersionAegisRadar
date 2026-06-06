@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDashboardStore, type ChartDataPoint } from "@/store/dashboardStore";
-import { signalRService, type Transaction } from "@/services/signalRService";
+import { useDashboardStore } from "@/store/dashboardStore";
+import { useAlertStore } from "@/store/alertStore";
+import { useSignalR } from "@/hooks/useSignalR";
 import { TimeRangeSelector, type TimeRange } from "@/components/TimeRangeSelector";
 import { StatsBar } from "@/components/StatsBar";
 import { LiveTransactionFeed } from "@/components/LiveTransactionFeed";
@@ -12,169 +13,121 @@ import { FraudProbabilityChart } from "@/components/charts/FraudProbabilityChart
 import { TransactionAmountChart } from "@/components/charts/TransactionAmountChart";
 import { FraudDecisionDonut } from "@/components/charts/FraudDecisionDonut";
 import { GeographyBarChart } from "@/components/charts/GeographyBarChart";
-import { Bell, Wifi, WifiOff } from "lucide-react";
-
-
-const VITE_API_URL = import.meta.env.VITE_API_URL || "http://localhost:5099";
-
-// Generate mock chart data for development
-const generateMockChartData = (range: TimeRange, existingData: ChartDataPoint[] = []): ChartDataPoint[] => {
-  const dataPoints = range === "1H" || range === "6H" || range === "24H" ? 60 : range === "7D" ? 7 : range === "30D" ? 30 : 365;
-  const now = new Date();
-  const data: ChartDataPoint[] = [];
-
-  for (let i = dataPoints - 1; i >= 0; i--) {
-    const date = new Date(now);
-    if (range === "1H") date.setMinutes(date.getMinutes() - i);
-    else if (range === "6H") date.setMinutes(date.getMinutes() - i * 6);
-    else if (range === "24H") date.setHours(date.getHours() - i);
-    else if (range === "7D") date.setDate(date.getDate() - i);
-    else if (range === "30D") date.setDate(date.getDate() - i);
-    else date.setFullYear(date.getFullYear() - i);
-
-    const timestamp = range === "24H" || range === "6H" || range === "1H"
-      ? date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
-      : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
-    data.push({
-      timestamp,
-      transactionCount: Math.floor(Math.random() * 50) + 10,
-      fraudCount: Math.floor(Math.random() * 15) + 2,
-      totalAmount: Math.random() * 100000 + 10000,
-      avgFraudProbability: Math.random() * 0.5 + 0.2,
-    });
-  }
-
-  return data;
-};
+import { Wifi, WifiOff } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const store = useDashboardStore();
+
+  // Initialize SignalR
+  useSignalR();
+
+  // Zustand stores
+  const dashboardStore = useDashboardStore();
+  const alertStore = useAlertStore();
+
+  // Local state
   const [selectedRange, setSelectedRange] = useState<TimeRange>("24H");
   const [isLoadingChartData, setIsLoadingChartData] = useState(false);
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const chartUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize SignalR connection
+  // Initialize dashboard data on mount
   useEffect(() => {
     if (!user) {
       navigate("/login");
       return;
     }
 
-    const initSignalR = async () => {
+    const initDashboard = async () => {
       try {
-        await signalRService.connect();
+        setIsLoadingChartData(true);
+        await dashboardStore.loadInitialData();
+        await alertStore.loadAlerts();
+        setIsLoadingChartData(false);
       } catch (error) {
-        console.error("Failed to connect to SignalR:", error);
+        console.error("Failed to initialize dashboard:", error);
+        setIsLoadingChartData(false);
+        toast.error("Failed to load dashboard data");
       }
     };
 
-    initSignalR();
+    initDashboard();
+  }, [user, navigate, dashboardStore, alertStore]);
 
-    // Subscribe to SignalR events
-    const unsubscribeTransaction = signalRService.onTransactionReceived((transaction) => {
-      store.addTransaction(transaction);
-      // Update current minute bucket in chart data
-      updateCurrentMinuteBucket(transaction);
-    });
-
-    const unsubscribeAlert = signalRService.onAlertCreated((alert) => {
-      store.addAlert(alert);
-    });
-
-    const unsubscribeStatus = signalRService.onConnectionStatusChanged((status) => {
-      store.setSignalRStatus(status);
-    });
-
-    return () => {
-      unsubscribeTransaction();
-      unsubscribeAlert();
-      unsubscribeStatus();
-    };
-  }, [user, navigate, store]);
-
-  // Load initial chart data based on selected range
+  // Handle time range selection
   useEffect(() => {
-    const loadChartData = async () => {
+    const loadRangeData = async () => {
       setIsLoadingChartData(true);
       try {
-        // In production, fetch from API based on range
-        // For now, use mock data
-        const data = generateMockChartData(selectedRange);
-        setChartData(data);
+        if (selectedRange === "1H" || selectedRange === "6H" || selectedRange === "24H") {
+          // For short ranges, use current chart data (real-time)
+          // The data is already being updated by SignalR
+        } else {
+          // For longer ranges, fetch historical data
+          const days =
+            selectedRange === "7D"
+              ? 7
+              : selectedRange === "30D"
+                ? 30
+                : selectedRange === "1Y"
+                  ? 365
+                  : 1825; // 5Y
+
+          await dashboardStore.loadHistoricalTrends(days);
+        }
+        setIsLoadingChartData(false);
       } catch (error) {
         console.error("Failed to load chart data:", error);
-        // Fallback to mock data
-        setChartData(generateMockChartData(selectedRange));
-      } finally {
         setIsLoadingChartData(false);
+        toast.error("Failed to load chart data");
       }
     };
 
-    loadChartData();
-  }, [selectedRange]);
+    loadRangeData();
+  }, [selectedRange, dashboardStore]);
 
-  // Update current minute bucket with new transaction
-  const updateCurrentMinuteBucket = useCallback((transaction: Transaction) => {
-    setChartData((prev) => {
-      if (prev.length === 0) return prev;
-
-      const updated = [...prev];
-      const lastPoint = updated[updated.length - 1];
-
-      // Update the last data point
-      lastPoint.transactionCount += 1;
-      lastPoint.totalAmount += transaction.amount;
-
-      if (transaction.fraudProbability > 0.5) {
-        lastPoint.fraudCount += 1;
-      }
-
-      // Recalculate average fraud probability
-      const avgFraud = (lastPoint.fraudCount + (lastPoint.transactionCount - lastPoint.fraudCount) * 0.3) / lastPoint.transactionCount;
-      lastPoint.avgFraudProbability = Math.min(avgFraud, 1);
-
-      return updated;
-    });
-  }, []);
-
-  // Auto-generate new data points every minute
+  // Auto-increment chart data every minute for real-time ranges
   useEffect(() => {
     if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
 
     if (selectedRange === "24H" || selectedRange === "6H" || selectedRange === "1H") {
       chartUpdateIntervalRef.current = setInterval(() => {
-        setChartData((prev) => {
-          if (prev.length === 0) return prev;
+        const { chartData, setChartData } = dashboardStore;
+        if (chartData.length === 0) return;
 
-          const updated = [...prev];
-          const now = new Date();
-          const newTimestamp = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-
-          // Remove oldest and add new
-          updated.shift();
-          updated.push({
-            timestamp: newTimestamp,
-            transactionCount: Math.floor(Math.random() * 30) + 5,
-            fraudCount: Math.floor(Math.random() * 10) + 1,
-            totalAmount: Math.random() * 80000 + 5000,
-            avgFraudProbability: Math.random() * 0.4 + 0.2,
-          });
-
-          return updated;
+        const updated = [...chartData];
+        const now = new Date();
+        const newTimestamp = now.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
         });
+
+        // Remove oldest and add new
+        updated.shift();
+        updated.push({
+          timestamp: newTimestamp,
+          transactionCount: Math.floor(Math.random() * 30) + 5,
+          fraudCount: Math.floor(Math.random() * 10) + 1,
+          totalAmount: Math.random() * 80000 + 5000,
+          avgFraudProbability: Math.random() * 0.4 + 0.2,
+        });
+
+        setChartData(updated);
       }, 60000); // Every minute
     }
 
     return () => {
       if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
     };
-  }, [selectedRange]);
+  }, [selectedRange, dashboardStore]);
 
-  const unreadAlerts = store.alerts.filter((a) => !a.isRead).length;
+  const unreadAlerts = alertStore.alerts.filter((a) => !a.isRead).length;
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -186,7 +139,7 @@ export default function Dashboard() {
               AegisRadar <span className="text-blue-500">Dashboard</span>
             </h1>
             <div className="ml-4 flex items-center gap-2 text-xs px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700">
-              {store.signalRStatus === "Connected" ? (
+              {dashboardStore.signalRStatus === "Connected" ? (
                 <>
                   <Wifi className="w-3 h-3 text-green-400" />
                   <span className="text-green-400 font-medium">Live</span>
@@ -194,7 +147,7 @@ export default function Dashboard() {
               ) : (
                 <>
                   <WifiOff className="w-3 h-3 text-red-400" />
-                  <span className="text-red-400 font-medium">{store.signalRStatus}</span>
+                  <span className="text-red-400 font-medium">{dashboardStore.signalRStatus}</span>
                 </>
               )}
             </div>
@@ -212,7 +165,7 @@ export default function Dashboard() {
       </header>
 
       {/* Disconnection Banner */}
-      {store.signalRStatus !== "Connected" && (
+      {dashboardStore.signalRStatus !== "Connected" && (
         <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-6 py-3 flex items-center gap-3">
           <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
           <span className="text-sm text-yellow-400">
@@ -225,7 +178,11 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Stats Bar */}
         <div className="mb-8">
-          <StatsBar stats={store.stats} isLoading={false} />
+          {dashboardStore.stats ? (
+            <StatsBar stats={dashboardStore.stats} isLoading={false} />
+          ) : (
+            <div className="h-24 bg-slate-800/50 rounded animate-pulse"></div>
+          )}
         </div>
 
         {/* Time Range Selector */}
@@ -242,37 +199,55 @@ export default function Dashboard() {
           {/* Left Column - Main Charts (70%) */}
           <div className="lg:col-span-2 space-y-6">
             {/* Transaction Volume Chart */}
-            <TransactionVolumeChart data={chartData} isLoading={isLoadingChartData} />
+            <TransactionVolumeChart
+              data={dashboardStore.chartData}
+              isLoading={isLoadingChartData}
+            />
 
             {/* Two charts side by side */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FraudProbabilityChart data={chartData} isLoading={isLoadingChartData} />
-              <TransactionAmountChart data={chartData} isLoading={isLoadingChartData} />
+              <FraudProbabilityChart
+                data={dashboardStore.chartData}
+                isLoading={isLoadingChartData}
+              />
+              <TransactionAmountChart
+                data={dashboardStore.chartData}
+                isLoading={isLoadingChartData}
+              />
             </div>
 
             {/* Geography Chart */}
-            <GeographyBarChart transactions={store.transactions} isLoading={false} />
+            <GeographyBarChart
+              transactions={dashboardStore.transactions}
+              isLoading={false}
+            />
           </div>
 
-          {/* Right Column - Decision Donut & Feed (30%) */}
+          {/* Right Column - Decision Donut (30%) */}
           <div className="space-y-6">
-            <FraudDecisionDonut transactions={store.transactions} isLoading={false} />
+            <FraudDecisionDonut
+              transactions={dashboardStore.transactions}
+              isLoading={false}
+            />
           </div>
         </div>
 
         {/* Live Transaction Feed */}
         <div className="mb-8">
           <div className="h-96">
-            <LiveTransactionFeed transactions={store.transactions} isLoading={false} />
+            <LiveTransactionFeed
+              transactions={dashboardStore.transactions}
+              isLoading={false}
+            />
           </div>
         </div>
       </main>
 
       {/* Alerts Panel */}
       <AlertsPanel
-        alerts={store.alerts}
-        onMarkAsRead={(alertId) => store.markAlertAsRead(alertId)}
-        onMarkAllAsRead={() => store.markAllAlertsAsRead()}
+        alerts={alertStore.alerts}
+        onMarkAsRead={(alertId) => alertStore.markRead(alertId).catch(console.error)}
+        onMarkAllAsRead={() => alertStore.markAllRead().catch(console.error)}
         isLoading={false}
       />
 
@@ -280,11 +255,15 @@ export default function Dashboard() {
       <div className="fixed bottom-6 left-6 flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 border border-slate-800">
         <div
           className={`w-2 h-2 rounded-full ${
-            store.signalRStatus === "Connected" ? "bg-green-500" : "bg-red-500"
-          } ${store.signalRStatus === "Reconnecting" ? "animate-pulse" : ""}`}
+            dashboardStore.signalRStatus === "Connected"
+              ? "bg-green-500"
+              : dashboardStore.signalRStatus === "Reconnecting"
+                ? "bg-yellow-500 animate-pulse"
+                : "bg-red-500"
+          }`}
         ></div>
         <span className="text-xs text-gray-400 font-medium">
-          {store.signalRStatus}
+          {dashboardStore.signalRStatus}
         </span>
       </div>
     </div>

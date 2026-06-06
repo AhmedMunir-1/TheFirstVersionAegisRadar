@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchApi } from "@/lib/api";
+import apiClient from "@/services/apiClient";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -27,9 +27,9 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
 
   const from = (location.state as any)?.from?.pathname || "/dashboard";
 
@@ -44,22 +44,17 @@ const Login = () => {
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true);
     try {
-      const res = await fetchApi<{ token: string }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify(data),
+      const response = await apiClient.auth.login(data.email, data.password);
+      
+      // Use AuthContext to set token
+      login(response.token);
+      
+      toast.success("Successfully logged in");
+      navigate(from, { replace: true });
+    } catch (error: any) {
+      toast.error("Login failed", {
+        description: error?.message || "Invalid credentials"
       });
-
-      if (res.success && res.data?.token) {
-        login(res.data.token);
-        toast.success("Successfully logged in");
-        navigate(from, { replace: true });
-      } else {
-        toast.error(res.message || "Login failed", {
-            description: res.errors?.join(", ")
-        });
-      }
-    } catch (error) {
-      toast.error("An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }

@@ -1,26 +1,4 @@
 services:
-
-  # ── SQL Server ───────────────────────────────────────────────────────────────
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: aegis-sqlserver
-    environment:
-      SA_PASSWORD: "${SQL_PASSWORD:-MyStrongPass123}"
-      ACCEPT_EULA: "Y"
-      MSSQL_PID: "Developer"
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqlserver_data:/var/opt/mssql
-    healthcheck:
-      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SQL_PASSWORD:-MyStrongPass123}" -Q "SELECT 1" -C || exit 1
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-    networks:
-      - aegis-network
-
   # ── Zookeeper ────────────────────────────────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -32,10 +10,11 @@ services:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_log:/var/lib/zookeeper/log
     healthcheck:
-      test: echo ruok | nc localhost 2181 | grep imok
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
       - aegis-network
 
@@ -45,7 +24,7 @@ services:
     container_name: aegis-kafka
     depends_on:
       zookeeper:
-        condition: service_healthy
+        condition: service_started
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -91,16 +70,14 @@ services:
       dockerfile: src/AegisRadar.API/Dockerfile
     container_name: aegis-api
     depends_on:
-      sqlserver:
-        condition: service_healthy
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5000
-      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=AegisRadarDATA;User Id=sa;Password=${SQL_PASSWORD:-AegisRadar@2024!};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__DefaultConnection: "Server=host.docker.internal,1433;Database=AegisRadarDB;User Id=sa;Password=StrongPassword123;TrustServerCertificate=True;MultipleActiveResultSets=True"
       ConnectionStrings__Redis: "redis:6379"
       Jwt__Secret: "${JWT_SECRET:-AegisRadar_SuperSecret_JWT_Key_2024_Production_32ch!!}"
       Jwt__Issuer: "AegisRadar"
@@ -111,13 +88,13 @@ services:
       AiService__BaseUrl: "${AI_API_URL:-http://localhost:8000}"
       AiService__PredictEndpoint: "${AI_API_PREDICT_ENDPOINT:-/predict}"
     ports:
-      - "5000:5000"
+      - "5001:5000"
     healthcheck:
       test: curl -f http://localhost:5000/health || exit 1
       interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      timeout: 15s
+      retries: 10
+      start_period: 120s
     networks:
       - aegis-network
     restart: unless-stopped
@@ -134,7 +111,7 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=AegisRadarDATA;User Id=sa;Password=${SQL_PASSWORD:-AegisRadar@2024!};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__DefaultConnection: "Server=host.docker.internal,1433;Database=AegisRadarDB;User Id=sa;Password=StrongPassword123;TrustServerCertificate=True;MultipleActiveResultSets=True"
       ConnectionStrings__Redis: "redis:6379"
       Jwt__Secret: "${JWT_SECRET:-AegisRadar_SuperSecret_JWT_Key_2024_Production_32ch!!}"
       Kafka__BootstrapServers: "kafka:9092"
@@ -152,7 +129,6 @@ networks:
     driver: bridge
 
 volumes:
-  sqlserver_data:
   zookeeper_data:
   zookeeper_log:
   kafka_data:

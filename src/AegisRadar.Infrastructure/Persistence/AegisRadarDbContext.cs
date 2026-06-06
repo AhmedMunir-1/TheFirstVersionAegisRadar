@@ -91,6 +91,23 @@ public class AegisRadarDbContext : DbContext
             .HasForeignKey(p => p.PlanId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Configure decimal properties with precision and scale
+        modelBuilder.Entity<Payment>()
+            .Property(p => p.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Payment>()
+            .Property(p => p.FraudScore)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<SubscriptionPlan>()
+            .Property(p => p.MonthlyPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Transaction>()
+            .Property(t => t.Amount)
+            .HasPrecision(18, 2);
+
         base.OnModelCreating(modelBuilder);
     }
 }

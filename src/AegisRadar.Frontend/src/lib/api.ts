@@ -8,7 +8,7 @@ export interface ApiResponse<T> {
 }
 
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("aegis_token");
   const headers = new Headers(options.headers || {});
   
   if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {

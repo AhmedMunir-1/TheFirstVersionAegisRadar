@@ -88,8 +88,22 @@ const formatCurrency = (value: number): string => {
 };
 
 export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) => {
-  const fraudRateThreshold = stats.fraudRateToday > 5;
-  const processingTimeThreshold = stats.avgProcessingTimeMs > 500;
+  // Guard against undefined stats or missing properties
+  if (!stats) {
+    return (
+      <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+        <div className="flex items-center justify-center h-24">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 border-4 border-slate-700 border-t-blue-600 rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-500">Loading stats...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const fraudRateThreshold = (stats.fraudRateToday ?? 0) > 5;
+  const processingTimeThreshold = (stats.avgProcessingTimeMs ?? 0) > 500;
 
   const mockSparkline = useMemo(() => {
     return Array.from({ length: 10 }, () => Math.floor(Math.random() * 100));
@@ -114,34 +128,34 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard
           label="Total Transactions"
-          value={stats.totalTransactionsToday}
+          value={stats.totalTransactionsToday ?? 0}
           sparkline={mockSparkline}
         />
         <StatCard
           label="Total Amount"
-          value={formatCurrency(stats.totalAmountToday)}
+          value={formatCurrency(stats.totalAmountToday ?? 0)}
           sparkline={mockSparkline}
         />
         <StatCard
           label="Fraud Rate"
-          value={stats.fraudRateToday.toFixed(1)}
+          value={(stats.fraudRateToday ?? 0).toFixed(1)}
           unit="%"
           isAlert={fraudRateThreshold}
           sparkline={mockSparkline}
         />
         <StatCard
           label="Blocked"
-          value={stats.blockedCount}
+          value={stats.blockedCount ?? 0}
           change={5}
         />
         <StatCard
           label="Pending Review"
-          value={stats.pendingReviewCount}
+          value={stats.pendingReviewCount ?? 0}
           change={-2}
         />
         <StatCard
           label="Avg Processing"
-          value={stats.avgProcessingTimeMs}
+          value={stats.avgProcessingTimeMs ?? 0}
           unit="ms"
           isAlert={processingTimeThreshold}
           sparkline={mockSparkline}
