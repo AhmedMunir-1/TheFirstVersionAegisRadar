@@ -3,7 +3,6 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY ["src/AegisRadar.Worker/AegisRadar.Worker.csproj",           "src/AegisRadar.Worker/"]
-COPY ["src/AegisRadar.Application/AegisRadar.Application.csproj", "src/AegisRadar.Application/"]
 COPY ["src/AegisRadar.Domain/AegisRadar.Domain.csproj",           "src/AegisRadar.Domain/"]
 COPY ["src/AegisRadar.Infrastructure/AegisRadar.Infrastructure.csproj", "src/AegisRadar.Infrastructure/"]
 COPY ["src/AegisRadar.Shared/AegisRadar.Shared.csproj",           "src/AegisRadar.Shared/"]

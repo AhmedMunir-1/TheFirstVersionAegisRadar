@@ -31,7 +31,6 @@ public static class DbSeeder
             {
                 await context.Database.ExecuteSqlRawAsync("DELETE FROM Alerts");
                 await context.Database.ExecuteSqlRawAsync("DELETE FROM Predictions");
-                await context.Database.ExecuteSqlRawAsync("DELETE FROM Payments");
                 await context.Database.ExecuteSqlRawAsync("DELETE FROM Transactions");
                 Console.WriteLine("✓ Cleared incompatible transactional data.");
             }
@@ -165,36 +164,6 @@ public static class DbSeeder
         // ── Seed Data ───────────────────────────────────────────────────────
         try
         {
-            // ── Subscription Plans ──────────────────────────────────────────
-            if (!await context.SubscriptionPlans.AnyAsync())
-            {
-                var starter = new SubscriptionPlan
-                {
-                    Id               = Guid.Parse("11111111-0000-0000-0000-000000000001"),
-                    Name             = SubscriptionPlanNames.Starter,
-                    MonthlyPrice     = 1500,
-                    TransactionLimit = 5000
-                };
-                var business = new SubscriptionPlan
-                {
-                    Id               = Guid.Parse("11111111-0000-0000-0000-000000000002"),
-                    Name             = SubscriptionPlanNames.Business,
-                    MonthlyPrice     = 4500,
-                    TransactionLimit = 25000
-                };
-                var enterprise = new SubscriptionPlan
-                {
-                    Id               = Guid.Parse("11111111-0000-0000-0000-000000000003"),
-                    Name             = SubscriptionPlanNames.Enterprise,
-                    MonthlyPrice     = 0,    // custom pricing
-                    TransactionLimit = -1    // unlimited
-                };
-
-                context.SubscriptionPlans.AddRange(starter, business, enterprise);
-                await context.SaveChangesAsync();
-                Console.WriteLine("✓ Subscription plans seeded.");
-            }
-
             // ── Demo Merchant ───────────────────────────────────────────────
             Console.WriteLine("[DbSeeder] Checking for existing merchants...");
             var demoMerchantId = Guid.Parse("22222222-0000-0000-0000-000000000001");
@@ -203,7 +172,6 @@ public static class DbSeeder
             if (!demoMerchantExists)
             {
                 Console.WriteLine("[DbSeeder] No demo merchant found, creating demo merchant...");
-                var starterPlanId  = Guid.Parse("11111111-0000-0000-0000-000000000001");
 
                 var merchant = new Merchant
                 {
@@ -214,25 +182,11 @@ public static class DbSeeder
                     ApiKey                = "ar_demo_key_aegisradar_2024_secure",
                     Country               = "EG",
                     Role                  = "Admin",
-                    PlanId                = starterPlanId,
                     IsEmailConfirmed      = true,   // pre-confirmed so demo works immediately
-                    IsTrialActive         = true,
-                    TrialStartDate        = DateTime.UtcNow,
-                    TrialEndDate          = DateTime.UtcNow.AddDays(14),
-                    HasPaymentMethod      = false,
                     CreatedAt             = DateTime.UtcNow
                 };
 
                 context.Merchants.Add(merchant);
-
-                context.MerchantSubscriptions.Add(new MerchantSubscription
-                {
-                    MerchantId = demoMerchantId,
-                    PlanId     = starterPlanId,
-                    StartDate  = DateTime.UtcNow,
-                    EndDate    = DateTime.UtcNow.AddMonths(1),
-                    IsActive   = true
-                });
 
                 await context.SaveChangesAsync();
                 Console.WriteLine("✓ Demo merchant seeded. Email: demo@aegisradar.io | Password: Demo@1234 | ApiKey: ar_demo_key_aegisradar_2024_secure");
@@ -286,52 +240,68 @@ public static class DbSeeder
                     var amount    = (decimal)(rng.NextDouble() * 5000 + 10);
                     var isForeign = rng.Next(0, 5) == 0;
                     
+                    // Calculate ML features once and reuse for both TransactionHistory and Prediction
+                    var amountRatio = rng.NextDouble() * 4 + 0.5;
+                    var hour = createdAt.Hour;
+                    var userDegree = rng.Next(1, 50);
+                    var merchantDegree = rng.Next(10, 2000);
+                    var userFrequencyPerDay = rng.Next(1, 8);
+                    var timeDifferenceHours = rng.Next(1, 24);
+                    
                     if (i % 10 == 0)
                         Console.WriteLine($"   Creating transactions {i+1}-{Math.Min(i+10, 50)}...");
 
 
                     var tx = new Transaction
                     {
-                        Id         = txId,
-                        MerchantId = demoMerchantId,
-                        CustomerId = $"cust_{rng.Next(1, 20):D3}",
-                        Amount     = amount,
-                        Currency   = "EGP",
-                        Country    = isForeign ? "US" : "EG",
-                        Mcc        = mccs[rng.Next(mccs.Length)],
-                        DeviceId   = $"dev_{rng.Next(1000, 9999)}",
-                        IpAddress  = $"197.{rng.Next(1, 254)}.{rng.Next(1, 254)}.{rng.Next(1, 254)}",
-                        Status     = statuses[statusIdx],
-                        CreatedAt  = createdAt
+                        Id               = txId,
+                        MerchantId       = demoMerchantId,
+                        CustomerId       = $"cust_{rng.Next(1, 20):D3}",
+                        Amount           = amount,
+                        Currency         = "EGP",
+                        Country          = isForeign ? "US" : "EG",
+                        MerchantCountry  = "EG", // NEW: Add merchant country
+                        Mcc              = mccs[rng.Next(mccs.Length)],
+                        DeviceId         = $"dev_{rng.Next(1000, 9999)}",
+                        IpAddress        = $"197.{rng.Next(1, 254)}.{rng.Next(1, 254)}.{rng.Next(1, 254)}",
+                        Status           = statuses[statusIdx],
+                        CreatedAt        = createdAt
                     };
 
                     context.Transactions.Add(tx);
 
-                    // Store the computed AI features alongside the transaction
                     context.TransactionHistories.Add(new TransactionHistory
                     {
                         TransactionId       = txId,
-                        AmountRatio         = rng.NextDouble() * 4 + 0.5,
-                        Hour                = createdAt.Hour,
+                        AmountRatio         = amountRatio,
+                        Hour                = hour,
                         IsForeign           = isForeign,
-                        UserDegree          = rng.Next(1, 50),
-                        MerchantDegree      = rng.Next(10, 2000),
+                        UserDegree          = userDegree,
+                        MerchantDegree      = merchantDegree,
                         Mcc                 = mccs[rng.Next(mccs.Length)],
-                        UserFrequencyPerDay = rng.Next(1, 8),
-                        TimeDifferenceHours = rng.NextDouble() * 24
+                        UserFrequencyPerDay = userFrequencyPerDay,
+                        TimeDifferenceHours = timeDifferenceHours
                     });
 
                     context.Predictions.Add(new Prediction
                     {
-                        TransactionId    = txId,
-                        FraudProbability = statusIdx == 0
+                        TransactionId           = txId,
+                        FraudProbability        = statusIdx == 0
                             ? rng.NextDouble() * 0.4
                             : statusIdx == 1
                                 ? 0.4 + rng.NextDouble() * 0.3
                                 : 0.7 + rng.NextDouble() * 0.3,
-                        Decision         = decisions[statusIdx],
-                        ModelVersion     = "1.0.0",
-                        CreatedAt        = createdAt.AddSeconds(1)
+                        Decision                = decisions[statusIdx],
+                        ModelVersion            = "1.0.0",
+                        CreatedAt               = createdAt.AddSeconds(1),
+                        // NEW: Add ML feature columns
+                        AmountRatio             = amountRatio,
+                        Hour                    = hour,
+                        IsForeign               = isForeign,
+                        UserDegree              = userDegree,
+                        MerchantDegree          = merchantDegree,
+                        UserFrequencyPerDay     = userFrequencyPerDay,
+                        TimeDifferenceHours     = timeDifferenceHours
                     });
 
                     if (statusIdx > 0)

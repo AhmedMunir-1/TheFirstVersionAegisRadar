@@ -13,6 +13,7 @@ import {
   FraudTrendDto,
   TransactionResponseDto,
   CreateTransactionRequest,
+  ReviewDecisionDto,
   AlertDto,
   MerchantProfileDto,
   SubscriptionPlanDto,
@@ -172,6 +173,33 @@ export const transactions = {
     const response = await axiosInstance.post<ApiResponse<TransactionResponseDto>>(
       "/api/transactions",
       dto
+    );
+    return response.data.data;
+  },
+
+  async review(id: string, decision: ReviewDecisionDto): Promise<TransactionResponseDto> {
+    const response = await axiosInstance.patch<ApiResponse<TransactionResponseDto>>(
+      `/api/transactions/${id}/review`,
+      decision
+    );
+    return response.data.data;
+  },
+
+  async manualDecision(
+    id: string,
+    decision: "Approved" | "Blocked",
+    reason: string
+  ): Promise<TransactionResponseDto> {
+    const response = await axiosInstance.patch<ApiResponse<TransactionResponseDto>>(
+      `/api/transactions/${id}/decision`,
+      { decision, reason }
+    );
+    return response.data.data;
+  },
+
+  async generateDemo(count: number = 10): Promise<{ generated: number }> {
+    const response = await axiosInstance.post<ApiResponse<{ generated: number }>>(
+      `/api/transactions/generate-demo?count=${count}`
     );
     return response.data.data;
   },

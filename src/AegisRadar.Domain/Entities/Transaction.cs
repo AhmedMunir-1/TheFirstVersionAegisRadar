@@ -9,6 +9,7 @@ public class Transaction : BaseEntity
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "EGP";
     public string Country { get; set; } = string.Empty;
+    public string MerchantCountry { get; set; } = string.Empty;
     public int Mcc { get; set; }
     public string DeviceId { get; set; } = string.Empty;
     public string IpAddress { get; set; } = string.Empty;

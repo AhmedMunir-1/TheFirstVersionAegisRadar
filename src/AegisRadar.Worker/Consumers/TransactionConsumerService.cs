@@ -1,16 +1,15 @@
-using AegisRadar.Application.DTOs;
-using AegisRadar.Application.Interfaces;
 using AegisRadar.Domain.Entities;
 using AegisRadar.Domain.Enums;
 using AegisRadar.Domain.Interfaces;
 using AegisRadar.Shared.Constants;
+using AegisRadar.Shared.DTOs;
 using AegisRadar.Shared.Events;
 using Confluent.Kafka;
-using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace AegisRadar.Worker.Consumers;
@@ -55,20 +54,52 @@ public class TransactionConsumerService : BackgroundService
         using var consumer = new ConsumerBuilder<string, string>(_consumerConfig)
             .SetErrorHandler((_, e) => _logger.LogError("Kafka consumer error: {Reason}", e.Reason))
             .SetPartitionsAssignedHandler((c, partitions) =>
-                _logger.LogInformation("Partitions assigned: {Partitions}", string.Join(",", partitions)))
+            {
+                var partitionInfo = string.Join(",", partitions.Select(p => $"{p.Topic}[{p.Partition}]"));
+                _logger.LogInformation("Partitions assigned: {Partitions} (Count: {Count})", partitionInfo, partitions.Count);
+            })
+            .SetPartitionsRevokedHandler((c, partitions) =>
+            {
+                var partitionInfo = string.Join(",", partitions.Select(p => $"{p.Topic}[{p.Partition}]"));
+                _logger.LogInformation("Partitions revoked: {Partitions}", partitionInfo);
+            })
             .Build();
 
-        consumer.Subscribe(_topic);
+        try
+        {
+            consumer.Subscribe(_topic);
+            _logger.LogInformation("Subscribed to topic: {Topic}", _topic);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to subscribe to topic {Topic}", _topic);
+            throw;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var result = consumer.Consume(TimeSpan.FromSeconds(1));
-                if (result?.Message?.Value is null) continue;
+                var result = consumer.Consume(TimeSpan.FromSeconds(3));
+                
+                if (result is null || result.IsPartitionEOF)
+                {
+                    // No message available or end of partition, continue
+                    continue;
+                }
+
+                if (result.Message?.Value is null)
+                {
+                    // Empty message
+                    continue;
+                }
 
                 var evt = JsonSerializer.Deserialize<TransactionCreatedEvent>(result.Message.Value);
-                if (evt is null) continue;
+                if (evt is null) 
+                {
+                    _logger.LogWarning("Failed to deserialize TransactionCreatedEvent from message");
+                    continue;
+                }
 
                 // Skip invalid events with null merchant
                 if (evt.MerchantId == Guid.Empty)
@@ -78,15 +109,18 @@ public class TransactionConsumerService : BackgroundService
                     continue;
                 }
 
-                _logger.LogInformation("Consumed TransactionCreatedEvent {TransactionId}", evt.TransactionId);
+                _logger.LogInformation("Consumed TransactionCreatedEvent {TransactionId} from partition {Partition}", evt.TransactionId, result.Partition);
 
                 await ProcessTransactionAsync(evt, stoppingToken);
                 consumer.Commit(result);
             }
-            catch (OperationCanceledException) { break; }
+            catch (OperationCanceledException) 
+            { 
+                break; 
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing Kafka message");
+                _logger.LogError(ex, "Error in Kafka consumer loop");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
@@ -142,13 +176,13 @@ public class TransactionConsumerService : BackgroundService
 
             // 2. Call FastAPI ML service
             var prediction = await mlSvc.PredictAsync(features, ct);
-            var decision   = ParseDecision(prediction.Decision);
+            var decision   = ParseDecision(prediction.decision);
 
             // 3. Save prediction result
             var predictionEntity = new Prediction
             {
                 TransactionId    = evt.TransactionId,
-                FraudProbability = prediction.FraudProbability,
+                FraudProbability = prediction.fraud_probability,
                 Decision         = decision,
                 ModelVersion     = "1.0.0"
             };
@@ -169,11 +203,18 @@ public class TransactionConsumerService : BackgroundService
             };
             await uow.TransactionHistories.AddAsync(history, ct);
 
-            // 5. Update transaction status
+            // 5. Update transaction status based on decision AND fraud probability
+            // Use aggressive thresholds to maximize auto-decisions and minimize "Review" count
             transaction.Status = decision switch
             {
                 FraudDecision.Approved => TransactionStatus.Approved,
-                FraudDecision.Review   => TransactionStatus.Review,
+                // Re-evaluate Review decisions using aggressive thresholds
+                FraudDecision.Review => prediction.fraud_probability switch
+                {
+                    >= 0.60 => TransactionStatus.Blocked,   // Moderate-high fraud -> block
+                    <= 0.40 => TransactionStatus.Approved,  // Low fraud -> approve
+                    _ => TransactionStatus.Review           // Only 0.40-0.60 range needs review (rare)
+                },
                 FraudDecision.Blocked  => TransactionStatus.Blocked,
                 _                      => TransactionStatus.Pending
             };
@@ -189,8 +230,8 @@ public class TransactionConsumerService : BackgroundService
                     TransactionId = evt.TransactionId,
                     Severity      = decision == FraudDecision.Blocked ? AlertSeverity.High : AlertSeverity.Medium,
                     Message       = decision == FraudDecision.Blocked
-                        ? $"Transaction BLOCKED — fraud probability {prediction.FraudProbability:P1} exceeds threshold. Transaction: {evt.TransactionId}"
-                        : $"Transaction flagged for REVIEW — fraud probability {prediction.FraudProbability:P1}. Transaction: {evt.TransactionId}",
+                        ? $"Transaction BLOCKED — fraud probability {prediction.fraud_probability:P1} exceeds threshold. Transaction: {evt.TransactionId}"
+                        : $"Transaction flagged for REVIEW — fraud probability {prediction.fraud_probability:P1}. Transaction: {evt.TransactionId}",
                     IsRead = false
                 };
                 await uow.Alerts.AddAsync(alert, ct);
@@ -200,7 +241,7 @@ public class TransactionConsumerService : BackgroundService
 
             _logger.LogInformation(
                 "Transaction {Id} processed: decision={Decision}, probability={Prob:F4}",
-                evt.TransactionId, decision, prediction.FraudProbability);
+                evt.TransactionId, decision, prediction.fraud_probability);
 
             // 7. Push real-time notification via SignalR
             if (alert is not null)
@@ -219,25 +260,39 @@ public class TransactionConsumerService : BackgroundService
     {
         try
         {
-            var hubConnection = new HubConnectionBuilder()
-                .WithUrl(_signalRHubUrl)
-                .WithAutomaticReconnect()
-                .Build();
+            var alertDto = new AlertDto
+            {
+                Id = alert.Id,
+                MerchantId = alert.MerchantId,
+                TransactionId = alert.TransactionId,
+                Severity = alert.Severity.ToString(),
+                Message = alert.Message,
+                IsRead = alert.IsRead,
+                CreatedAt = alert.CreatedAt
+            };
 
-            await hubConnection.StartAsync(ct);
+            var apiBaseUrl = _signalRHubUrl.Replace("/hubs/fraud-alerts", string.Empty);
+            var notificationUrl = $"{apiBaseUrl}/api/notifications/fraud-alert";
 
-            var alertDto = new AlertDto(
-                alert.Id, alert.MerchantId, alert.TransactionId,
-                alert.Severity.ToString(), alert.Message, alert.IsRead, alert.CreatedAt);
+            using (var client = new HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(5);
+                var request = new
+                {
+                    merchantId = merchantId,
+                    alert = alertDto
+                };
 
-            await hubConnection.InvokeAsync(
-                "SendFraudAlert",
-                merchantId.ToString(),
-                alertDto,
-                cancellationToken: ct);
-
-            await hubConnection.StopAsync(ct);
-            _logger.LogInformation("SignalR alert sent for merchant {MerchantId}", merchantId);
+                var response = await client.PostAsJsonAsync(notificationUrl, request, ct);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("SignalR alert sent for merchant {MerchantId}", merchantId);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to send notification. Status: {StatusCode}", response.StatusCode);
+                }
+            }
         }
         catch (Exception ex)
         {

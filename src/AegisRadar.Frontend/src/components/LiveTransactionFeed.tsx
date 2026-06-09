@@ -1,12 +1,13 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Pause, Play, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Transaction } from "@/services/signalRService";
+import type { TransactionResponseDto } from "@/types/api";
 
 interface LiveTransactionFeedProps {
-  transactions: Transaction[];
+  transactions: TransactionResponseDto[];
   isLoading?: boolean;
+  onTransactionClick?: (transaction: TransactionResponseDto) => void;
 }
 
 const getStatusColor = (status: string) => {
@@ -48,6 +49,7 @@ const getFraudColor = (probability: number) => {
 export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
   transactions,
   isLoading = false,
+  onTransactionClick,
 }) => {
   const [isPaused, setIsPaused] = useState(false);
   const [minFraudFilter, setMinFraudFilter] = useState(0);
@@ -55,12 +57,12 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
 
   const filteredTransactions = useMemo(() => {
     return transactions
-      .filter((t) => t.fraudProbability >= minFraudFilter)
+      .filter((t) => (t.prediction?.fraudProbability ?? 0) >= minFraudFilter)
       .filter((t) => !statusFilter || t.status === statusFilter)
       .slice(0, 50);
   }, [transactions, minFraudFilter, statusFilter]);
 
-  const displayTransactions = isPaused ? filteredTransactions : filteredTransactions;
+  const displayTransactions = filteredTransactions;
 
   const unreadCount = transactions.length;
 
@@ -139,63 +141,67 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {displayTransactions.map((transaction, idx) => (
-              <div
-                key={transaction.id}
-                className={`p-3 rounded border transition-all duration-300 ${
-                  idx === 0
-                    ? "bg-slate-700/50 border-blue-500/50 animate-pulse"
-                    : "bg-slate-800/30 border-slate-700/50 hover:border-slate-600/50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  {/* Left: Status and Amount */}
-                  <div className="flex items-start gap-2 flex-1 min-w-0">
-                    <span
-                      className={`mt-1 font-bold text-lg flex-shrink-0 ${
-                        transaction.status === "Approved"
-                          ? "text-green-400"
-                          : transaction.status === "Blocked"
-                            ? "text-red-400"
-                            : transaction.status === "Review"
-                              ? "text-yellow-400"
-                              : "text-gray-400"
-                      }`}
-                    >
-                      {getStatusIcon(transaction.status)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-white text-sm">
-                        {transaction.amount.toFixed(2)} {transaction.currency}
+            {displayTransactions.map((transaction, idx) => {
+              const fraudProbability = transaction.prediction?.fraudProbability ?? 0;
+              const customerLabel = "Customer " + (transaction.customerId?.slice(0, 8) ?? "Unknown");
+              return (
+                <div
+                  key={transaction.id}
+                  onClick={() => onTransactionClick?.(transaction)}
+                  className={`p-3 rounded border transition-all duration-300 cursor-pointer ${
+                    idx === 0
+                      ? "bg-slate-700/50 border-blue-500/50 animate-pulse"
+                      : "bg-slate-800/30 border-slate-700/50 hover:border-slate-600/50 hover:bg-slate-700/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    {/* Left: Status and Amount */}
+                    <div className="flex items-start gap-2 flex-1 min-w-0">
+                      <span
+                        className={`mt-1 font-bold text-lg flex-shrink-0 ${
+                          transaction.status === "Approved"
+                            ? "text-green-400"
+                            : transaction.status === "Blocked"
+                              ? "text-red-400"
+                              : transaction.status === "Review"
+                                ? "text-yellow-400"
+                                : "text-gray-400"
+                        }`}
+                      >
+                        {getStatusIcon(transaction.status)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-white text-sm">
+                          {transaction.amount.toFixed(2)} {transaction.currency}
+                        </div>
+                        <div className="text-xs text-gray-400 truncate">{customerLabel}</div>
                       </div>
-                      <div className="text-xs text-gray-400 truncate">{transaction.merchantName}</div>
                     </div>
-                  </div>
 
-                  {/* Middle: Country and Fraud Badge */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs bg-slate-700 px-2 py-1 rounded text-gray-300">
-                      {transaction.country}
-                    </span>
-                    <div
-                      className={`text-xs font-semibold px-2 py-1 rounded border ${getFraudColor(
-                        transaction.fraudProbability
-                      )}`}
-                    >
-                      {(transaction.fraudProbability * 100).toFixed(0)}%
+                    {/* Middle: Country and Fraud Badge */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs bg-slate-700 px-2 py-1 rounded text-gray-300">
+                        {transaction.transactionCountry || "Unknown"}
+                      </span>
+                      <div
+                        className={`text-xs font-semibold px-2 py-1 rounded border ${getFraudColor(
+                          fraudProbability
+                        )}`}
+                      >
+                        {(fraudProbability * 100).toFixed(0)}%
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Right: Time */}
-                  <div className="flex-shrink-0 text-right">
-                    <div className="text-xs text-gray-500">
-                      {formatDistanceToNow(new Date(transaction.createdAt), { addSuffix: true })}
+                    {/* Right: Time */}
+                    <div className="flex-shrink-0 text-right">
+                      <div className="text-xs text-gray-500">
+                        {formatDistanceToNow(new Date(transaction.createdAt), { addSuffix: true })}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-600">{transaction.processingTimeMs}ms</div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

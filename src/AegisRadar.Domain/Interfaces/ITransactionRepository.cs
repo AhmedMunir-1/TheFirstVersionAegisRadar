@@ -15,4 +15,5 @@ public interface ITransactionRepository : IRepository<Transaction>
     Task<int> GetUserFrequencyTodayAsync(string customerId, CancellationToken cancellationToken = default);
     Task<DateTime?> GetLastTransactionTimeAsync(string customerId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Transaction>> GetRecentByMerchantAsync(Guid merchantId, int count, CancellationToken cancellationToken = default);
+    Task<IEnumerable<Transaction>> GetByMerchantIdInRangeAsync(Guid merchantId, DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default);
 }

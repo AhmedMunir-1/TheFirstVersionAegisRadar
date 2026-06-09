@@ -1,5 +1,5 @@
-using AegisRadar.Application.DTOs;
 using AegisRadar.Shared.Constants;
+using AegisRadar.Shared.DTOs;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AegisRadar.API.Hubs;

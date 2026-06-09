@@ -32,4 +32,11 @@ public class AlertRepository : Repository<Alert>, IAlertRepository
         return await Context.Alerts
             .CountAsync(a => a.MerchantId == merchantId && !a.IsRead, cancellationToken);
     }
+
+    public async Task MarkAllAlertsReadAsync(Guid merchantId, CancellationToken cancellationToken = default)
+    {
+        await Context.Alerts
+            .Where(a => a.MerchantId == merchantId && !a.IsRead)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsRead, true), cancellationToken);
+    }
 }

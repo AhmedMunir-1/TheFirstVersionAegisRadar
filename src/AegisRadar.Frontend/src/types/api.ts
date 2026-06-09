@@ -42,65 +42,86 @@ export interface ResetPasswordRequest {
 }
 
 // ==================== DASHBOARD DTOs ====================
+// Matches AegisRadar.Shared.DTOs.DashboardStatsDto (C# → camelCase JSON)
 export interface DashboardStatsDto {
-  totalTransactionsToday: number;
-  totalAmountToday: number;
-  fraudRateToday: number;
-  blockedCount: number;
-  approvedCount: number;
-  pendingReviewCount: number;
-  avgProcessingTimeMs: number;
+  totalTransactions: number;       // monthly total
+  fraudulentCount: number;         // total blocked ever
+  reviewCount: number;             // total in review ever
+  approvedCount: number;           // total approved ever
+  blockedCount: number;            // total blocked ever (same as fraudulentCount)
+  pendingReviewCount: number;      // currently in review
+  totalAmount: number;             // total amount (monthly)
+  totalAmountToday: number;        // total amount today
+  totalTransactionsToday: number;  // transactions today
+  fraudRate: number;               // fraud rate overall (0–100)
+  fraudRateToday: number;          // fraud rate today (0–100)
 }
 
+// Matches AegisRadar.Shared.DTOs.FraudTrendDto (C# → camelCase JSON)
 export interface FraudTrendDto {
-  date: string;
+  date: string;                    // ISO date string
+  count: number;                   // same as transactionCount
   transactionCount: number;
   fraudCount: number;
   totalAmount: number;
-  avgFraudProbability: number;
+  percentage: number;
+  avgFraudProbability: number;     // 0.0 – 1.0
 }
 
 // ==================== TRANSACTION DTOs ====================
 export interface PredictionDto {
   fraudProbability: number;
-  decision: "Approve" | "Block" | "Review";
+  decision: string;
   modelVersion: string;
   createdAt: string;
+  amountRatio: number;
+  hour: number;
+  isForeign: boolean;
+  userDegree: number;
+  merchantDegree: number;
+  userFrequencyPerDay: number;
+  timeDifferenceHours: number;
 }
 
+// Matches AegisRadar.Shared.DTOs.TransactionResponseDto (C# → camelCase JSON)
 export interface TransactionResponseDto {
   id: string;
   merchantId: string;
   customerId: string;
   amount: number;
   currency: string;
-  country: string;
+  status: string;                  // "Pending" | "Approved" | "Blocked" | "Review"
+  transactionCountry: string;      // NOTE: field is transactionCountry, not country
+  merchantCountry: string;
   mcc: number;
-  status: "Pending" | "Approved" | "Blocked" | "Review";
+  deviceId: string;
+  ipAddress: string;
   createdAt: string;
   prediction: PredictionDto | null;
-  deviceId?: string;
-  ipAddress?: string;
 }
 
 export interface CreateTransactionRequest {
   customerId: string;
   amount: number;
   currency: string;
-  country: string;
+  transactionCountry: string;
   mcc: number;
   deviceId: string;
   ipAddress: string;
 }
 
+export interface ReviewDecisionDto {
+  decision: "approve" | "block";
+  note?: string;
+}
+
 // ==================== ALERT DTOs ====================
 export interface AlertDto {
   id: string;
-  type: string;
-  severity: "Low" | "Medium" | "High" | "Critical";
-  title: string;
-  description: string;
+  merchantId: string;
   transactionId: string;
+  severity: "Low" | "Medium" | "High" | "Critical";
+  message: string;
   isRead: boolean;
   createdAt: string;
 }
@@ -147,12 +168,12 @@ export interface ProcessPaymentDto {
 export interface FraudDetectedEvent {
   transactionId: string;
   fraudProbability: number;
-  decision: "Approve" | "Block" | "Review";
+  decision: string;
 }
 
 export interface TransactionResolvedEvent {
   transactionId: string;
-  status: "Pending" | "Approved" | "Blocked" | "Review";
+  status: string;
   resolvedAt: string;
 }
 

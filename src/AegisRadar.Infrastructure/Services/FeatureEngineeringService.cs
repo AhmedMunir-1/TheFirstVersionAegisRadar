@@ -1,5 +1,4 @@
-using AegisRadar.Application.DTOs;
-using AegisRadar.Application.Interfaces;
+using AegisRadar.Shared.DTOs;
 using AegisRadar.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 

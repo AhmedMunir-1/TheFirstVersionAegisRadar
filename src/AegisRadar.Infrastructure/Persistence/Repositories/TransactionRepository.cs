@@ -97,4 +97,17 @@ public class TransactionRepository : Repository<Transaction>, ITransactionReposi
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IEnumerable<Transaction>> GetByMerchantIdInRangeAsync(
+        Guid merchantId, 
+        DateTime startDate, 
+        DateTime endDate, 
+        CancellationToken cancellationToken = default)
+    {
+        return await Context.Transactions
+            .Where(t => t.MerchantId == merchantId && t.CreatedAt >= startDate && t.CreatedAt < endDate)
+            .Include(t => t.Prediction)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
 }

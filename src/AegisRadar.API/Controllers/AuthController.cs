@@ -1,8 +1,10 @@
-using AegisRadar.Application.Features.Auth.Commands;
-using AegisRadar.Application.DTOs;
+using AegisRadar.Domain.Entities;
+using AegisRadar.Domain.Interfaces;
+using AegisRadar.Shared.DTOs;
 using AegisRadar.Shared.Wrappers;
-using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace AegisRadar.API.Controllers;
 
@@ -11,64 +13,79 @@ namespace AegisRadar.API.Controllers;
 [Produces("application/json")]
 public class AuthController : ControllerBase
 {
-    private readonly IMediator _mediator;
+    private readonly IUnitOfWork _uow;
+    private readonly ITokenService _tokenService;
 
-    public AuthController(IMediator mediator) => _mediator = mediator;
+    public AuthController(IUnitOfWork uow, ITokenService tokenService)
+    {
+        _uow = uow;
+        _tokenService = tokenService;
+    }
 
-    /// <summary>Authenticate a merchant and receive a JWT token.</summary>
     [HttpPost("login")]
     [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), 200)]
     [ProducesResponseType(401)]
     public async Task<IActionResult> Login([FromBody] LoginRequestDto request, CancellationToken ct)
     {
-        var result = await _mediator.Send(new LoginCommand(request), ct);
-        if (result is null)
+        var merchant = await _uow.Merchants.GetByEmailAsync(request.Email.Trim().ToLowerInvariant(), ct);
+        if (merchant is null || merchant.PasswordHash != HashPassword(request.Password))
             return Unauthorized(ApiResponse<LoginResponseDto>.Fail("Invalid email or password."));
 
-        return Ok(ApiResponse<LoginResponseDto>.Ok(result, "Login successful."));
+        var token = _tokenService.GenerateJwtToken(merchant);
+        var response = new LoginResponseDto
+        {
+            Token = token,
+            MerchantId = merchant.Id,
+            Email = merchant.Email,
+            CompanyName = merchant.CompanyName
+        };
+
+        return Ok(ApiResponse<LoginResponseDto>.Ok(response, "Login successful."));
     }
 
-    /// <summary>Register a new merchant account (sends verification code to email).</summary>
     [HttpPost("register")]
     [ProducesResponseType(typeof(ApiResponse<RegisterResultDto>), 201)]
     [ProducesResponseType(400)]
     public async Task<IActionResult> Register([FromBody] RegisterMerchantDto request, CancellationToken ct)
     {
-        var result = await _mediator.Send(new RegisterMerchantCommand(request), ct);
-        if (result is null)
-            return BadRequest(ApiResponse<RegisterResultDto>.Fail("Registration failed. Email might already be in use."));
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password) || string.IsNullOrWhiteSpace(request.CompanyName))
+            return BadRequest(ApiResponse<RegisterResultDto>.Fail("Company name, email, and password are required."));
 
-        return StatusCode(201, ApiResponse<RegisterResultDto>.Ok(result, "Verification code sent to email."));
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var existingMerchant = await _uow.Merchants.GetByEmailAsync(normalizedEmail, ct);
+        if (existingMerchant is not null)
+            return BadRequest(ApiResponse<RegisterResultDto>.Fail("Email is already registered."));
+
+        var merchant = new Merchant
+        {
+            CompanyName = request.CompanyName.Trim(),
+            Email = normalizedEmail,
+            PasswordHash = HashPassword(request.Password),
+            Country = string.IsNullOrWhiteSpace(request.Country) ? "EG" : request.Country.Trim(),
+            ApiKey = Guid.NewGuid().ToString("N"),
+            Role = "Admin",
+            IsEmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _uow.Merchants.AddAsync(merchant, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        var token = _tokenService.GenerateJwtToken(merchant);
+        var response = new RegisterResultDto
+        {
+            MerchantId = merchant.Id,
+            Email = merchant.Email,
+            CompanyName = merchant.CompanyName,
+            Token = token
+        };
+
+        return StatusCode(201, ApiResponse<RegisterResultDto>.Ok(response, "Merchant registered successfully."));
     }
 
-    /// <summary>Verify email with code and receive JWT token.</summary>
-    [HttpPost("verify")]
-    [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), 200)]
-    [ProducesResponseType(400)]
-    public async Task<IActionResult> Verify([FromBody] VerifyEmailRequestDto request, CancellationToken ct)
+    private static string HashPassword(string password)
     {
-        var result = await _mediator.Send(new VerifyEmailCommand(request), ct);
-        if (result is null)
-            return BadRequest(ApiResponse<LoginResponseDto>.Fail("Invalid verification code or expired."));
-
-        return Ok(ApiResponse<LoginResponseDto>.Ok(result, "Email verified. Logged in."));
-    }
-
-    /// <summary>Request a password reset code to be sent to email.</summary>
-    [HttpPost("forgot-password")]
-    [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
-    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequestDto request, CancellationToken ct)
-    {
-        var result = await _mediator.Send(new ForgotPasswordCommand(request), ct);
-        return Ok(ApiResponse<bool>.Ok(result, result ? "Reset code sent." : "Email not found."));
-    }
-
-    /// <summary>Reset password using code sent to email.</summary>
-    [HttpPost("reset-password")]
-    [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
-    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto request, CancellationToken ct)
-    {
-        var result = await _mediator.Send(new ResetPasswordCommand(request), ct);
-        return Ok(ApiResponse<bool>.Ok(result, result ? "Password reset successful." : "Invalid code or expired."));
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(password));
+        return Convert.ToHexString(bytes);
     }
 }

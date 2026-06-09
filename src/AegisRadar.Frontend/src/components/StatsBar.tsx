@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
-import type { DashboardStats } from "@/store/dashboardStore";
+import type { DashboardStatsDto } from "@/types/api";
 
 interface StatCardProps {
   label: string;
@@ -73,7 +73,9 @@ const StatCard: React.FC<StatCardProps> = ({
 };
 
 interface StatsBarProps {
-  stats: DashboardStats;
+  stats: DashboardStatsDto;
+  unreadAlerts?: number;
+  avgFraudProbability?: number;
   isLoading?: boolean;
 }
 
@@ -87,9 +89,14 @@ const formatCurrency = (value: number): string => {
   return `$${value.toFixed(0)}`;
 };
 
-export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) => {
+export const StatsBar: React.FC<StatsBarProps> = ({ 
+  stats, 
+  unreadAlerts = 0,
+  avgFraudProbability = 0,
+  isLoading = false 
+}) => {
   // Guard against undefined stats or missing properties
-  if (!stats) {
+  if (!stats || isLoading) {
     return (
       <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
         <div className="flex items-center justify-center h-24">
@@ -102,25 +109,9 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) 
     );
   }
 
+  // Use the exact field names from DashboardStatsDto (totalTransactionsToday, totalAmountToday, fraudRateToday, blockedCount)
   const fraudRateThreshold = (stats.fraudRateToday ?? 0) > 5;
-  const processingTimeThreshold = (stats.avgProcessingTimeMs ?? 0) > 500;
-
-  const mockSparkline = useMemo(() => {
-    return Array.from({ length: 10 }, () => Math.floor(Math.random() * 100));
-  }, []);
-
-  if (isLoading) {
-    return (
-      <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-        <div className="flex items-center justify-center h-24">
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-8 h-8 border-4 border-slate-700 border-t-blue-600 rounded-full animate-spin"></div>
-            <p className="text-sm text-gray-500">Loading stats...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const avgFraudProbabilityValue = avgFraudProbability ?? 0;
 
   return (
     <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
@@ -129,19 +120,16 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) 
         <StatCard
           label="Total Transactions"
           value={stats.totalTransactionsToday ?? 0}
-          sparkline={mockSparkline}
         />
         <StatCard
           label="Total Amount"
           value={formatCurrency(stats.totalAmountToday ?? 0)}
-          sparkline={mockSparkline}
         />
         <StatCard
           label="Fraud Rate"
           value={(stats.fraudRateToday ?? 0).toFixed(1)}
           unit="%"
           isAlert={fraudRateThreshold}
-          sparkline={mockSparkline}
         />
         <StatCard
           label="Blocked"
@@ -149,16 +137,15 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats, isLoading = false }) 
           change={5}
         />
         <StatCard
-          label="Pending Review"
-          value={stats.pendingReviewCount ?? 0}
+          label="Unread Alerts"
+          value={unreadAlerts ?? 0}
           change={-2}
         />
         <StatCard
-          label="Avg Processing"
-          value={stats.avgProcessingTimeMs ?? 0}
-          unit="ms"
-          isAlert={processingTimeThreshold}
-          sparkline={mockSparkline}
+          label="Avg Fraud %"
+          value={(avgFraudProbabilityValue * 100).toFixed(1)}
+          unit="%"
+          isAlert={avgFraudProbabilityValue * 100 > 50}
         />
       </div>
     </div>

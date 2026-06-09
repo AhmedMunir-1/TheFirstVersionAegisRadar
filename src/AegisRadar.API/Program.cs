@@ -1,14 +1,9 @@
 using AegisRadar.API.Hubs;
 using AegisRadar.API.Middleware;
-using AegisRadar.Application.Validators;
 using AegisRadar.Infrastructure;
-using AegisRadar.Infrastructure.Jobs;
 using AegisRadar.Infrastructure.Persistence;
 using AegisRadar.Infrastructure.Persistence.Seed;
 using AegisRadar.Infrastructure.Services;
-using FluentValidation;
-using FluentValidation.AspNetCore;
-using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -35,17 +30,8 @@ try
         .WriteTo.Console()
         .WriteTo.File("logs/aegisradar-.log", rollingInterval: RollingInterval.Day));
 
-    // ── Infrastructure (EF Core / SQL Server / Redis / Kafka / Hangfire) ──────
-    // FIX: AddInfrastructure now registers AddHangfireServer() with resilience.
+    // ── Infrastructure (EF Core / SQL Server / Redis / Kafka) ──────
     builder.Services.AddInfrastructure(builder.Configuration);
-
-    // ── MediatR ───────────────────────────────────────────────────────────────
-    builder.Services.AddMediatR(cfg =>
-        cfg.RegisterServicesFromAssembly(typeof(AegisRadar.Application.Features.Auth.Commands.LoginCommand).Assembly));
-
-    // ── FluentValidation ──────────────────────────────────────────────────────
-    builder.Services.AddFluentValidationAutoValidation();
-    builder.Services.AddValidatorsFromAssemblyContaining<TransactionRequestValidator>();
 
     // ── Controllers & SignalR ─────────────────────────────────────────────────
     builder.Services.AddControllers();
@@ -115,11 +101,27 @@ try
 
     // ── CORS ──────────────────────────────────────────────────────────────────
     builder.Services.AddCors(options =>
-        options.AddDefaultPolicy(policy =>
-            policy.AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials()
-                  .SetIsOriginAllowed(_ => true)));
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            // Development: allow frontend on common dev ports (Vite, React Dev Server, etc.)
+            options.AddDefaultPolicy(policy =>
+                policy.WithOrigins("http://localhost:3000", "http://localhost:5173", "http://localhost:8080")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials());
+        }
+        else
+        {
+            // Production: restrict to configured frontend origins only
+            var frontendUrl = builder.Configuration["Frontend:Url"] ?? "https://app.aegisradar.io";
+            options.AddDefaultPolicy(policy =>
+                policy.WithOrigins(frontendUrl)
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials());
+        }
+    });
 
     // ═══════════════════════════════════════════════════════════════════════════
     var app = builder.Build();
@@ -130,26 +132,6 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<AegisRadarDbContext>();
         await DbSeeder.SeedAsync(db);
-    }
-
-    // ── Hangfire Recurring Jobs ───────────────────────────────────────────────
-    // FIX: AddHangfireServer() is now registered inside AddInfrastructure().
-    //      Here we only schedule the recurring job. Wrapped in try/catch so a
-    //      missing Hangfire schema (first startup before DB exists) doesn't crash.
-    try
-    {
-        var recurringJobs = app.Services.GetRequiredService<IRecurringJobManager>();
-        recurringJobs.AddOrUpdate<FraudSummaryJob>(
-            "fraud-daily-summary",
-            job => job.ExecuteAsync(),
-            Cron.Daily);
-        Console.WriteLine("✓ Hangfire recurring jobs configured successfully.");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine(
-            $"⚠ Could not configure Hangfire recurring jobs " +
-            $"(DB may not have Hangfire schema yet): {ex.Message}");
     }
 
     // ── Middleware Pipeline ───────────────────────────────────────────────────
@@ -169,20 +151,7 @@ try
     app.UseCors();
     app.UseRateLimiter();
     app.UseAuthentication();
-    app.UseMiddleware<ApiKeyMiddleware>();
     app.UseAuthorization();
-
-    try
-    {
-        app.UseHangfireDashboard("/hangfire", new DashboardOptions
-        {
-            DashboardTitle = "AegisRadar — Background Jobs"
-        });
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"⚠ Hangfire dashboard not available: {ex.Message}");
-    }
 
     app.MapControllers();
     app.MapHub<FraudAlertHub>("/hubs/fraud-alerts");

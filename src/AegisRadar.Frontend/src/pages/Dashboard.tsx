@@ -3,25 +3,26 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDashboardStore } from "@/store/dashboardStore";
 import { useAlertStore } from "@/store/alertStore";
-import { useSignalR } from "@/hooks/useSignalR";
 import { TimeRangeSelector, type TimeRange } from "@/components/TimeRangeSelector";
 import { StatsBar } from "@/components/StatsBar";
 import { LiveTransactionFeed } from "@/components/LiveTransactionFeed";
 import { AlertsPanel } from "@/components/AlertsPanel";
-import { TransactionVolumeChart } from "@/components/charts/TransactionVolumeChart";
-import { FraudProbabilityChart } from "@/components/charts/FraudProbabilityChart";
-import { TransactionAmountChart } from "@/components/charts/TransactionAmountChart";
-import { FraudDecisionDonut } from "@/components/charts/FraudDecisionDonut";
-import { GeographyBarChart } from "@/components/charts/GeographyBarChart";
+import { TransactionDetailModal } from "@/components/TransactionDetailModal";
+import {
+  TransactionVolumeChart,
+  FraudProbabilityChart,
+  TransactionAmountChart,
+  FraudDecisionDonut,
+  GeographyBarChart,
+} from "@/components/charts";
 import { Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
+import { apiClient } from "@/services/apiClient";
+import type { TransactionResponseDto } from "@/types/api";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-
-  // Initialize SignalR
-  useSignalR();
 
   // Zustand stores
   const dashboardStore = useDashboardStore();
@@ -30,41 +31,64 @@ export default function Dashboard() {
   // Local state
   const [selectedRange, setSelectedRange] = useState<TimeRange>("24H");
   const [isLoadingChartData, setIsLoadingChartData] = useState(false);
-  const chartUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<TransactionResponseDto | null>(null);
 
-  // Initialize dashboard data on mount
+  // Initialize dashboard data on mount (only once)
   useEffect(() => {
     if (!user) {
       navigate("/login");
       return;
     }
 
+    let isMounted = true;
+
     const initDashboard = async () => {
       try {
         setIsLoadingChartData(true);
         await dashboardStore.loadInitialData();
-        await alertStore.loadAlerts();
-        setIsLoadingChartData(false);
+        if (isMounted) await alertStore.loadAlerts();
+
+        // Auto-generate demo data if no transactions exist today
+        const currentStats = useDashboardStore.getState().stats;
+        if (currentStats && currentStats.transactionsToday === 0) {
+          try {
+            await apiClient.instance.post(
+              "/api/transactions/generate-demo?count=10"
+            );
+          } catch (e) {
+            // silent fail — don't block dashboard on demo generation failure
+          }
+        }
       } catch (error) {
         console.error("Failed to initialize dashboard:", error);
-        setIsLoadingChartData(false);
-        toast.error("Failed to load dashboard data");
+        if (isMounted) toast.error("Failed to load dashboard data");
+      } finally {
+        if (isMounted) setIsLoadingChartData(false);
       }
     };
 
-    initDashboard();
+    // Only load if not already loaded
+    if (!dashboardStore.stats) {
+      initDashboard();
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, [user, navigate, dashboardStore, alertStore]);
 
-  // Handle time range selection
+  // Handle time range selection (fetch historical data if needed)
   useEffect(() => {
-    const loadRangeData = async () => {
-      setIsLoadingChartData(true);
-      try {
-        if (selectedRange === "1H" || selectedRange === "6H" || selectedRange === "24H") {
-          // For short ranges, use current chart data (real-time)
-          // The data is already being updated by SignalR
-        } else {
-          // For longer ranges, fetch historical data
+    if (
+      selectedRange === "7D" ||
+      selectedRange === "30D" ||
+      selectedRange === "1Y" ||
+      selectedRange === "5Y"
+    ) {
+      const loadRangeData = async () => {
+        setIsLoadingChartData(true);
+        try {
           const days =
             selectedRange === "7D"
               ? 7
@@ -72,58 +96,31 @@ export default function Dashboard() {
                 ? 30
                 : selectedRange === "1Y"
                   ? 365
-                  : 1825; // 5Y
-
+                  : 1825;
           await dashboardStore.loadHistoricalTrends(days);
+        } catch (error) {
+          console.error("Failed to load chart data:", error);
+          toast.error("Failed to load chart data");
+        } finally {
+          setIsLoadingChartData(false);
         }
-        setIsLoadingChartData(false);
-      } catch (error) {
-        console.error("Failed to load chart data:", error);
-        setIsLoadingChartData(false);
-        toast.error("Failed to load chart data");
-      }
-    };
+      };
 
-    loadRangeData();
-  }, [selectedRange, dashboardStore]);
-
-  // Auto-increment chart data every minute for real-time ranges
-  useEffect(() => {
-    if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
-
-    if (selectedRange === "24H" || selectedRange === "6H" || selectedRange === "1H") {
-      chartUpdateIntervalRef.current = setInterval(() => {
-        const { chartData, setChartData } = dashboardStore;
-        if (chartData.length === 0) return;
-
-        const updated = [...chartData];
-        const now = new Date();
-        const newTimestamp = now.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-
-        // Remove oldest and add new
-        updated.shift();
-        updated.push({
-          timestamp: newTimestamp,
-          transactionCount: Math.floor(Math.random() * 30) + 5,
-          fraudCount: Math.floor(Math.random() * 10) + 1,
-          totalAmount: Math.random() * 80000 + 5000,
-          avgFraudProbability: Math.random() * 0.4 + 0.2,
-        });
-
-        setChartData(updated);
-      }, 60000); // Every minute
+      loadRangeData();
     }
-
-    return () => {
-      if (chartUpdateIntervalRef.current) clearInterval(chartUpdateIntervalRef.current);
-    };
   }, [selectedRange, dashboardStore]);
 
   const unreadAlerts = alertStore.alerts.filter((a) => !a.isRead).length;
+
+  // Generate Demo handler
+  const handleGenerateDemo = async () => {
+    try {
+      await apiClient.instance.post("/api/transactions/generate-demo?count=10");
+      toast.success("10 demo transactions submitted — watch live!");
+    } catch (error) {
+      toast.error("Failed to generate demo transactions");
+    }
+  };
 
   if (!user) {
     return null;
@@ -141,16 +138,29 @@ export default function Dashboard() {
             <div className="ml-4 flex items-center gap-2 text-xs px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700">
               {dashboardStore.signalRStatus === "Connected" ? (
                 <>
-                  <Wifi className="w-3 h-3 text-green-400" />
-                  <span className="text-green-400 font-medium">Live</span>
+                  <Wifi className="w-3 h-3 text-green-500 animate-pulse" />
+                  <span className="text-green-400 font-medium">Connected</span>
+                </>
+              ) : dashboardStore.signalRStatus === "Reconnecting" ? (
+                <>
+                  <Wifi className="w-3 h-3 text-blue-500 animate-bounce" />
+                  <span className="text-blue-400 font-medium">Reconnecting...</span>
                 </>
               ) : (
                 <>
-                  <WifiOff className="w-3 h-3 text-red-400" />
-                  <span className="text-red-400 font-medium">{dashboardStore.signalRStatus}</span>
+                  <WifiOff className="w-3 h-3 text-red-500 animate-pulse" />
+                  <span className="text-red-400 font-medium">Disconnected</span>
                 </>
               )}
             </div>
+            {/* Generate Demo Button */}
+            <button
+              id="generate-demo-btn"
+              onClick={handleGenerateDemo}
+              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+            >
+              Generate Demo
+            </button>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-400">{user?.email}</span>
@@ -166,11 +176,26 @@ export default function Dashboard() {
 
       {/* Disconnection Banner */}
       {dashboardStore.signalRStatus !== "Connected" && (
-        <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-6 py-3 flex items-center gap-3">
-          <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-yellow-400">
-            Live updates paused — reconnecting...
-          </span>
+        <div
+          className={`px-6 py-4 flex items-center gap-3 border-b ${
+            dashboardStore.signalRStatus === "Reconnecting"
+              ? "bg-blue-500/10 border-blue-500/30"
+              : "bg-red-500/10 border-red-500/30"
+          }`}
+        >
+          {dashboardStore.signalRStatus === "Reconnecting" ? (
+            <>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span className="text-sm text-blue-400">Reconnecting to live updates...</span>
+            </>
+          ) : (
+            <>
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+              <span className="text-sm text-red-400">
+                Connection lost — attempting to reconnect...
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -179,7 +204,12 @@ export default function Dashboard() {
         {/* Stats Bar */}
         <div className="mb-8">
           {dashboardStore.stats ? (
-            <StatsBar stats={dashboardStore.stats} isLoading={false} />
+            <StatsBar 
+              stats={dashboardStore.stats}
+              unreadAlerts={unreadAlerts}
+              avgFraudProbability={dashboardStore.chartData[dashboardStore.chartData.length - 1]?.avgFraudProbability ?? 0}
+              isLoading={false} 
+            />
           ) : (
             <div className="h-24 bg-slate-800/50 rounded animate-pulse"></div>
           )}
@@ -216,10 +246,9 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Geography Chart */}
+            {/* Decision Overview Chart */}
             <GeographyBarChart
-              transactions={dashboardStore.transactions}
-              isLoading={false}
+              isLoading={dashboardStore.isLoading}
             />
           </div>
 
@@ -227,7 +256,7 @@ export default function Dashboard() {
           <div className="space-y-6">
             <FraudDecisionDonut
               transactions={dashboardStore.transactions}
-              isLoading={false}
+              isLoading={dashboardStore.isLoading}
             />
           </div>
         </div>
@@ -238,10 +267,24 @@ export default function Dashboard() {
             <LiveTransactionFeed
               transactions={dashboardStore.transactions}
               isLoading={false}
+              onTransactionClick={setSelectedTransaction}
             />
           </div>
         </div>
       </main>
+
+      {/* Transaction Detail Modal */}
+      <TransactionDetailModal
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        onReviewComplete={(updated) => {
+          dashboardStore.updateTransaction(updated.id, {
+            status: updated.status,
+            prediction: updated.prediction,
+          } as any);
+          toast.success(`Transaction ${updated.status.toLowerCase()}`);
+        }}
+      />
 
       {/* Alerts Panel */}
       <AlertsPanel

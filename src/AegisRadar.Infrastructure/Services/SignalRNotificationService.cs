@@ -1,5 +1,5 @@
-using AegisRadar.Application.DTOs;
-using AegisRadar.Application.Interfaces;
+using AegisRadar.Shared.DTOs;
+using AegisRadar.Domain.Interfaces;
 using AegisRadar.Shared.Constants;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;

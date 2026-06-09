@@ -2,10 +2,10 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Bell, X, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
-import type { Alert } from "@/services/signalRService";
+import type { AlertDto } from "@/types/api";
 
 interface AlertsPanelProps {
-  alerts: Alert[];
+  alerts: AlertDto[];
   onMarkAsRead: (alertId: string) => void;
   onMarkAllAsRead: () => void;
   isLoading?: boolean;
@@ -148,8 +148,10 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-sm truncate">{alert.title}</h4>
-                        <p className="text-xs opacity-90 line-clamp-2">{alert.description}</p>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-black/30 text-gray-300 mb-1">
+                          {alert.severity}
+                        </span>
+                        <p className="text-xs opacity-90 line-clamp-2">{alert.message}</p>
                       </div>
                       <button
                         onClick={() => onMarkAsRead(alert.id)}
@@ -162,10 +164,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
                         )}
                       </button>
                     </div>
-                    <div className="flex items-center justify-between text-xs opacity-75">
-                      <span className="inline-flex items-center px-2 py-1 rounded bg-black/30 text-gray-300">
-                        {alert.type}
-                      </span>
+                    <div className="flex items-center justify-end text-xs opacity-75">
                       <span>
                         {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
                       </span>

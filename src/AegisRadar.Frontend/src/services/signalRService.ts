@@ -2,16 +2,13 @@ import * as signalR from "@microsoft/signalr";
 import type {
   TransactionResponseDto,
   AlertDto,
-  FraudDetectedEvent,
-  TransactionResolvedEvent,
 } from "@/types/api";
 
 export type ConnectionStatus = "Connecting" | "Connected" | "Disconnected" | "Reconnecting";
 
 type TransactionCallback = (transaction: TransactionResponseDto) => void;
 type AlertCallback = (alert: AlertDto) => void;
-type FraudDetectedCallback = (data: FraudDetectedEvent) => void;
-type TransactionResolvedCallback = (data: TransactionResolvedEvent) => void;
+type DashboardRefreshCallback = () => void;
 type StatusCallback = (status: ConnectionStatus) => void;
 
 class SignalRService {
@@ -19,9 +16,24 @@ class SignalRService {
   private connectionStatus: ConnectionStatus = "Disconnected";
   private statusCallbacks: Set<StatusCallback> = new Set();
   private transactionCallbacks: Set<TransactionCallback> = new Set();
-  private fraudDetectedCallbacks: Set<FraudDetectedCallback> = new Set();
   private alertCallbacks: Set<AlertCallback> = new Set();
-  private transactionResolvedCallbacks: Set<TransactionResolvedCallback> = new Set();
+  private dashboardRefreshCallbacks: Set<DashboardRefreshCallback> = new Set();
+
+  private getMerchantIdFromToken(): string | null {
+    const token = localStorage.getItem("aegis_token");
+    if (!token) return null;
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(atob(parts[1]));
+      return payload.sub
+          || payload.nameid
+          || payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"]
+          || null;
+    } catch {
+      return null;
+    }
+  }
 
   async connect(): Promise<void> {
     if (this.connection?.state === signalR.HubConnectionState.Connected) {
@@ -36,58 +48,67 @@ class SignalRService {
         throw new Error("No authentication token found");
       }
 
-      const signalRUrl = import.meta.env.VITE_SIGNALR_URL || "http://localhost:5099/hubs/fraud";
+      const signalRUrl = import.meta.env.VITE_SIGNALR_URL || "http://localhost:5099/hubs/fraud-alerts";
 
       this.connection = new signalR.HubConnectionBuilder()
         .withUrl(signalRUrl, {
           accessTokenFactory: () => token,
           transport: signalR.HttpTransportType.WebSockets,
+          skipNegotiation: false,
         })
-        .withAutomaticReconnect([0, 2000, 5000, 10000, 15000, 30000])
+        .withAutomaticReconnect([0, 2000, 5000, 10000, 15000, 30000, 60000])
         .withServerTimeout(30000)
         .configureLogging(signalR.LogLevel.Warning)
         .build();
 
       this.connection.onreconnecting(() => {
+        console.warn("SignalR: Reconnecting...");
         this.setStatus("Reconnecting");
       });
 
-      this.connection.onreconnected(() => {
+      this.connection.onreconnected(async () => {
+        console.log("SignalR: Reconnected successfully");
         this.setStatus("Connected");
+        // Re-join merchant group on reconnect
+        const merchantId = this.getMerchantIdFromToken();
+        if (merchantId && this.connection) {
+          try {
+            await this.connection.invoke("JoinMerchantGroup", merchantId);
+          } catch (err) {
+            console.warn("Failed to rejoin merchant group:", err);
+          }
+        }
       });
 
       this.connection.onclose(() => {
+        console.warn("SignalR: Connection closed");
         this.setStatus("Disconnected");
       });
 
-      this.connection.on("TransactionProcessed", (transaction: TransactionResponseDto) => {
-        this.transactionCallbacks.forEach((cb) => cb(transaction));
-      });
-
-      // Also listen to backend's TransactionUpdated event (from PredictionConsumerService)
+      // Real event: transaction updated (from PredictionConsumerService)
       this.connection.on("TransactionUpdated", (transaction: TransactionResponseDto) => {
         this.transactionCallbacks.forEach((cb) => cb(transaction));
       });
 
-      this.connection.on("FraudDetected", (data: FraudDetectedEvent) => {
-        this.fraudDetectedCallbacks.forEach((cb) => cb(data));
-      });
-
-      this.connection.on("AlertCreated", (alert: AlertDto) => {
-        this.alertCallbacks.forEach((cb) => cb(alert));
-      });
-
-      // Also listen to backend's FraudAlertReceived event
+      // Real event: fraud alert received
       this.connection.on("FraudAlertReceived", (alert: AlertDto) => {
         this.alertCallbacks.forEach((cb) => cb(alert));
       });
 
-      this.connection.on("TransactionResolved", (data: TransactionResolvedEvent) => {
-        this.transactionResolvedCallbacks.forEach((cb) => cb(data));
+      // Real event: dashboard refresh trigger
+      this.connection.on("DashboardRefresh", () => {
+        this.dashboardRefreshCallbacks.forEach((cb) => cb());
       });
 
       await this.connection.start();
       this.setStatus("Connected");
+
+      // Join merchant-specific SignalR group
+      const merchantId = this.getMerchantIdFromToken();
+      console.log("Joining SignalR group for merchant:", merchantId);
+      if (merchantId) {
+        await this.connection.invoke("JoinMerchantGroup", merchantId);
+      }
     } catch (error) {
       console.error("SignalR connection failed:", error);
       this.setStatus("Disconnected");
@@ -108,19 +129,14 @@ class SignalRService {
     return () => this.transactionCallbacks.delete(callback);
   }
 
-  onFraudDetected(callback: FraudDetectedCallback): () => void {
-    this.fraudDetectedCallbacks.add(callback);
-    return () => this.fraudDetectedCallbacks.delete(callback);
-  }
-
   onAlertCreated(callback: AlertCallback): () => void {
     this.alertCallbacks.add(callback);
     return () => this.alertCallbacks.delete(callback);
   }
 
-  onTransactionResolved(callback: TransactionResolvedCallback): () => void {
-    this.transactionResolvedCallbacks.add(callback);
-    return () => this.transactionResolvedCallbacks.delete(callback);
+  onDashboardRefresh(callback: DashboardRefreshCallback): () => void {
+    this.dashboardRefreshCallbacks.add(callback);
+    return () => this.dashboardRefreshCallbacks.delete(callback);
   }
 
   onConnectionStatusChanged(callback: StatusCallback): () => void {
@@ -144,4 +160,3 @@ class SignalRService {
 
 // Singleton instance
 export const signalRService = new SignalRService();
-

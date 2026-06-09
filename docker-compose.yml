@@ -1,67 +1,4 @@
 services:
-  # ── Zookeeper ────────────────────────────────────────────────────────────────
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: aegis-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-      - zookeeper_log:/var/lib/zookeeper/log
-    healthcheck:
-      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - aegis-network
-
-  # ── Kafka ────────────────────────────────────────────────────────────────────
-  kafka:
-    image: confluentinc/cp-kafka:7.6.0
-    container_name: aegis-kafka
-    depends_on:
-      zookeeper:
-        condition: service_started
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 24
-    ports:
-      - "29092:29092"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: kafka-topics --bootstrap-server kafka:9092 --list
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-    networks:
-      - aegis-network
-
-  # ── Redis ─────────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: aegis-redis
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: redis-cli ping
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - aegis-network
 
   # ── ASP.NET Core API ──────────────────────────────────────────────────────────
   aegisradar-api:
@@ -69,24 +6,17 @@ services:
       context: .
       dockerfile: src/AegisRadar.API/Dockerfile
     container_name: aegis-api
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5000
       ConnectionStrings__DefaultConnection: "Server=host.docker.internal,1433;Database=AegisRadarDB;User Id=sa;Password=StrongPassword123;TrustServerCertificate=True;MultipleActiveResultSets=True"
-      ConnectionStrings__Redis: "redis:6379"
       Jwt__Secret: "${JWT_SECRET:-AegisRadar_SuperSecret_JWT_Key_2024_Production_32ch!!}"
       Jwt__Issuer: "AegisRadar"
       Jwt__Audience: "AegisRadarClients"
-      Kafka__BootstrapServers: "kafka:9092"
+      Kafka__BootstrapServers: "host.docker.internal:9092"
       Kafka__TransactionsTopic: "aegis-transactions"
-      # ── Point this to your external AI API ───────────────────────────────────
-      AiService__BaseUrl: "${AI_API_URL:-http://localhost:8000}"
-      AiService__PredictEndpoint: "${AI_API_PREDICT_ENDPOINT:-/predict}"
+      AiService__BaseUrl: "http://host.docker.internal:8001"
+      AiService__PredictEndpoint: "/predict"
     ports:
       - "5001:5000"
     healthcheck:
@@ -98,7 +28,7 @@ services:
     networks:
       - aegis-network
     restart: unless-stopped
-
+ 
   # ── Worker Service (Kafka Consumer) ───────────────────────────────────────────
   aegisradar-worker:
     build:
@@ -108,28 +38,21 @@ services:
     depends_on:
       aegisradar-api:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
     environment:
       ConnectionStrings__DefaultConnection: "Server=host.docker.internal,1433;Database=AegisRadarDB;User Id=sa;Password=StrongPassword123;TrustServerCertificate=True;MultipleActiveResultSets=True"
-      ConnectionStrings__Redis: "redis:6379"
       Jwt__Secret: "${JWT_SECRET:-AegisRadar_SuperSecret_JWT_Key_2024_Production_32ch!!}"
-      Kafka__BootstrapServers: "kafka:9092"
+      Kafka__BootstrapServers: "host.docker.internal:9092"
       Kafka__TransactionsTopic: "aegis-transactions"
-      # ── Point this to your external AI API ───────────────────────────────────
-      AiService__BaseUrl: "${AI_API_URL:-http://localhost:8000}"
-      AiService__PredictEndpoint: "${AI_API_PREDICT_ENDPOINT:-/predict}"
+      AiService__BaseUrl: "http://host.docker.internal:8001"
+      AiService__PredictEndpoint: "/predict"
       SignalR__HubUrl: "http://aegisradar-api:5000/hubs/fraud-alerts"
     networks:
       - aegis-network
     restart: unless-stopped
-
+ 
 networks:
   aegis-network:
     driver: bridge
-
+ 
 volumes:
-  zookeeper_data:
-  zookeeper_log:
-  kafka_data:
   redis_data:

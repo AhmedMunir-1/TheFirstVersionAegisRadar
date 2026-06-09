@@ -17,23 +17,15 @@ try
         .Enrich.FromLogContext()
         .WriteTo.Console());
 
-    // ── Infrastructure (EF, Repos, Kafka, Redis, ML Client) ──────────────────
     builder.Services.AddInfrastructure(builder.Configuration);
 
-    // ── MediatR ───────────────────────────────────────────────────────────────
-    builder.Services.AddMediatR(cfg =>
-        cfg.RegisterServicesFromAssembly(typeof(AegisRadar.Application.Features.Auth.Commands.LoginCommand).Assembly));
-
-    // ── Kafka Consumer Background Services ────────────────────────────────────
     builder.Services.AddHostedService<TransactionConsumerService>();
-    builder.Services.AddHostedService<PredictionConsumerService>();
-    builder.Services.AddHostedService<DemoTransactionGeneratorService>();
+    // builder.Services.AddHostedService<DemoTransactionGeneratorService>();
 
     var host = builder.Build();
     Log.Information("AegisRadar Worker starting...");
     await host.RunAsync();
 }
-
 catch (Exception ex)
 {
     Log.Fatal(ex, "AegisRadar Worker terminated unexpectedly.");

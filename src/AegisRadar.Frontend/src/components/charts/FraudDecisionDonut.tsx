@@ -7,18 +7,19 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { Transaction } from "@/services/signalRService";
+import type { TransactionResponseDto } from "@/types/api";
+import { useDashboardStore } from "@/store/dashboardStore";
 
 interface FraudDecisionDonutProps {
-  transactions: Transaction[];
+  transactions: TransactionResponseDto[];
   isLoading?: boolean;
 }
 
 const COLORS = {
   Approved: "#10b981", // green
-  Blocked: "#ef4444", // red
-  Review: "#f59e0b", // yellow
-  Pending: "#6b7280", // gray
+  Blocked: "#ef4444",  // red
+  Review: "#f59e0b",   // yellow
+  Pending: "#6b7280",  // gray
 };
 
 const CustomTooltip: React.FC<any> = ({ active, payload }) => {
@@ -43,26 +44,35 @@ export const FraudDecisionDonut: React.FC<FraudDecisionDonutProps> = ({
   transactions,
   isLoading = false,
 }) => {
+  // Read counts directly from stats for accuracy (transactions array may be partial)
+  const stats = useDashboardStore((state) => state.stats);
+
   const donutData = useMemo(() => {
-    const counts = {
-      Approved: 0,
-      Blocked: 0,
-      Review: 0,
-      Pending: 0,
-    };
-
-    transactions.forEach((t) => {
-      counts[t.status] += 1;
-    });
-
-    const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
-
-    return Object.entries(counts).map(([key, value]) => ({
-      name: key,
-      value,
-      percentage: (value / total) * 100,
-    }));
-  }, [transactions]);
+    if (!stats) return [];
+    const total = stats.totalTransactionsToday || 1;
+    const approved = Math.max(0,
+      (stats.totalTransactionsToday ?? 0) -
+      (stats.blockedCount ?? 0) -
+      (stats.pendingReviewCount ?? 0)
+    );
+    return [
+      {
+        name: "Approved",
+        value: approved,
+        percentage: (approved / total) * 100,
+      },
+      {
+        name: "Blocked",
+        value: stats.blockedCount ?? 0,
+        percentage: ((stats.blockedCount ?? 0) / total) * 100,
+      },
+      {
+        name: "Review",
+        value: stats.pendingReviewCount ?? 0,
+        percentage: ((stats.pendingReviewCount ?? 0) / total) * 100,
+      },
+    ].filter((d) => d.value > 0);
+  }, [stats]);
 
   if (isLoading) {
     return (
@@ -75,7 +85,15 @@ export const FraudDecisionDonut: React.FC<FraudDecisionDonutProps> = ({
     );
   }
 
-  const total = donutData.reduce((sum, d) => sum + d.value, 0);
+  if (!stats) {
+    return (
+      <div className="w-full h-80 bg-slate-900/50 border border-slate-800 rounded-lg flex items-center justify-center">
+        <p className="text-gray-500 text-sm">No data available</p>
+      </div>
+    );
+  }
+
+  const total = stats.totalTransactionsToday ?? 0;
 
   return (
     <div className="w-full h-80 bg-slate-900/50 border border-slate-800 rounded-lg p-4 flex flex-col">

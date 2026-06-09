@@ -19,8 +19,15 @@ class Transaction(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load model on startup
-    model_loader.load_model()
+    try:
+        model_loader.load_model()
+        print("✓ Model loaded successfully")
+    except Exception as e:
+        print(f"✗ Error loading model: {e}")
+        print("✓ Using fallback/mock model")
     yield
+    # Cleanup if needed
+    print("Shutting down ML service")
 
 app = FastAPI(
     title="AegisRadar ML Service",
@@ -41,14 +48,17 @@ app.add_middleware(
 def health():
     return {
         "status": "online",
-        "model_loaded": model_loader.model is not None
+        "model_loaded": model_loader.model is not None,
+        "model_type": model_loader.model.__class__.__name__ if model_loader.model else "None"
     }
 
 @app.get("/model-info")
 def model_info():
+    model_type = model_loader.model.__class__.__name__ if model_loader.model else "None"
     return {
-        "model": "XGBoost v1",
-        "features": model_loader.feature_columns
+        "model": f"{model_type} v1",
+        "features": model_loader.feature_columns,
+        "ready": model_loader.model is not None
     }
 
 @app.post("/predict")
@@ -58,3 +68,12 @@ def predict(transaction: Transaction):
     
     result = predict_transaction(transaction.dict())
     return result
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8001,
+        log_level="info"
+    )

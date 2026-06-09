@@ -1,9 +1,9 @@
-using AegisRadar.Application.DTOs;
-using AegisRadar.Application.Features.Transactions.Commands;
-using AegisRadar.Application.Features.Transactions.Queries;
+using AegisRadar.Domain.Entities;
+using AegisRadar.Domain.Enums;
 using AegisRadar.Domain.Interfaces;
+using AegisRadar.Shared.DTOs;
+using AegisRadar.Shared.Events;
 using AegisRadar.Shared.Wrappers;
-using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -15,55 +15,87 @@ namespace AegisRadar.API.Controllers;
 [Produces("application/json")]
 public class TransactionsController : ControllerBase
 {
-    private readonly IMediator _mediator;
     private readonly IUnitOfWork _uow;
+    private readonly IKafkaProducer _kafkaProducer;
     private readonly ILogger<TransactionsController> _logger;
 
-    public TransactionsController(IMediator mediator, IUnitOfWork uow, ILogger<TransactionsController> logger)
+    public TransactionsController(IUnitOfWork uow, IKafkaProducer kafkaProducer, ILogger<TransactionsController> logger)
     {
-        _mediator = mediator;
-        _uow      = uow;
-        _logger   = logger;
+        _uow = uow;
+        _kafkaProducer = kafkaProducer;
+        _logger = logger;
     }
 
-    /// <summary>
-    /// Submit a transaction for real-time fraud analysis.
-    /// Requires X-API-Key header. Returns 202 Accepted immediately;
-    /// the fraud verdict is processed asynchronously via Kafka.
-    /// </summary>
     [HttpPost]
+    [Authorize]
     [ProducesResponseType(typeof(ApiResponse<TransactionResponseDto>), 202)]
     [ProducesResponseType(401)]
-    [ProducesResponseType(429)]
     public async Task<IActionResult> Submit([FromBody] TransactionRequestDto request, CancellationToken ct)
     {
-        // Merchant context was populated by ApiKeyMiddleware
-        if (!HttpContext.Items.TryGetValue("MerchantId", out var merchantIdObj) || merchantIdObj is not Guid merchantId)
-            return Unauthorized(ApiResponse<TransactionResponseDto>.Fail("Missing merchant context."));
+        var merchantId = GetMerchantIdFromToken();
+        if (merchantId == Guid.Empty)
+            return Unauthorized(ApiResponse<TransactionResponseDto>.Fail("Invalid or missing JWT token."));
 
-        var merchantCountry = HttpContext.Items["MerchantCountry"] as string ?? "EG";
-        var planLimit       = (int)(HttpContext.Items["PlanLimit"] ?? 5000);
+        var merchant = await _uow.Merchants.GetByIdAsync(merchantId, ct);
+        if (merchant is null)
+            return Unauthorized(ApiResponse<TransactionResponseDto>.Fail("Merchant not found."));
 
-        // Enforce subscription transaction limit
-        if (planLimit > 0)
+        var transaction = new Transaction
         {
-            var monthlyCount = await _uow.Transactions.GetMonthlyCountByMerchantAsync(merchantId, ct);
-            if (monthlyCount >= planLimit)
-            {
-                _logger.LogWarning("Merchant {MerchantId} exceeded plan limit {Limit}", merchantId, planLimit);
-                return StatusCode(429, ApiResponse<TransactionResponseDto>.Fail(
-                    $"Monthly transaction limit ({planLimit}) exceeded. Please upgrade your plan."));
-            }
-        }
+            MerchantId = merchant.Id,
+            CustomerId = request.CustomerId,
+            Amount = request.Amount,
+            Currency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency,
+            Country = request.TransactionCountry,
+            MerchantCountry = merchant.Country,
+            Mcc = request.Mcc,
+            DeviceId = request.DeviceId,
+            IpAddress = request.IpAddress,
+            Status = TransactionStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
 
-        var command = new SubmitTransactionCommand(merchantId, merchantCountry, request);
-        var result  = await _mediator.Send(command, ct);
+        await _uow.Transactions.AddAsync(transaction, ct);
+        await _uow.SaveChangesAsync(ct);
 
-        return StatusCode(202, ApiResponse<TransactionResponseDto>.Ok(result,
+        var transactionEvent = new TransactionCreatedEvent
+        {
+            TransactionId = transaction.Id,
+            MerchantId = transaction.MerchantId,
+            CustomerId = transaction.CustomerId,
+            Amount = transaction.Amount,
+            Currency = transaction.Currency,
+            TransactionCountry = transaction.Country,
+            MerchantCountry = transaction.MerchantCountry,
+            Mcc = transaction.Mcc,
+            DeviceId = transaction.DeviceId,
+            IpAddress = transaction.IpAddress,
+            CreatedAt = transaction.CreatedAt
+        };
+
+        await _kafkaProducer.PublishTransactionCreatedAsync(transactionEvent, ct);
+
+        var response = new TransactionResponseDto
+        {
+            Id = transaction.Id,
+            MerchantId = transaction.MerchantId,
+            CustomerId = transaction.CustomerId,
+            Amount = transaction.Amount,
+            Currency = transaction.Currency,
+            Status = transaction.Status.ToString(),
+            TransactionCountry = transaction.Country,
+            MerchantCountry = transaction.MerchantCountry,
+            Mcc = transaction.Mcc,
+            DeviceId = transaction.DeviceId,
+            IpAddress = transaction.IpAddress,
+            CreatedAt = transaction.CreatedAt,
+            Prediction = null
+        };
+
+        return StatusCode(202, ApiResponse<TransactionResponseDto>.Ok(response,
             "Transaction accepted. Fraud analysis is processing asynchronously."));
     }
 
-    /// <summary>List transactions for the authenticated merchant (paginated).</summary>
     [HttpGet]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<TransactionResponseDto>>), 200)]
@@ -72,11 +104,40 @@ public class TransactionsController : ControllerBase
         var merchantId = GetMerchantIdFromToken();
         if (merchantId == Guid.Empty) return Unauthorized();
 
-        var result = await _mediator.Send(new GetTransactionsQuery(merchantId, page, pageSize), ct);
-        return Ok(ApiResponse<IEnumerable<TransactionResponseDto>>.Ok(result));
+        var transactions = await _uow.Transactions.GetByMerchantIdAsync(merchantId, page, pageSize, ct);
+        var response = transactions.Select(tx => new TransactionResponseDto
+        {
+            Id = tx.Id,
+            MerchantId = tx.MerchantId,
+            CustomerId = tx.CustomerId,
+            Amount = tx.Amount,
+            Currency = tx.Currency,
+            Status = tx.Status.ToString(),
+            TransactionCountry = tx.Country,
+            MerchantCountry = tx.MerchantCountry,
+            Mcc = tx.Mcc,
+            DeviceId = tx.DeviceId,
+            IpAddress = tx.IpAddress,
+            CreatedAt = tx.CreatedAt,
+            Prediction = tx.Prediction is null ? null : new PredictionResponseDto
+            {
+                FraudProbability = tx.Prediction.FraudProbability,
+                Decision = tx.Prediction.Decision.ToString(),
+                ModelVersion = tx.Prediction.ModelVersion,
+                CreatedAt = tx.Prediction.CreatedAt,
+                AmountRatio = tx.Prediction.AmountRatio ?? 0,
+                Hour = tx.Prediction.Hour ?? 0,
+                IsForeign = tx.Prediction.IsForeign ?? false,
+                UserDegree = tx.Prediction.UserDegree ?? 0,
+                MerchantDegree = tx.Prediction.MerchantDegree ?? 0,
+                UserFrequencyPerDay = tx.Prediction.UserFrequencyPerDay ?? 0,
+                TimeDifferenceHours = tx.Prediction.TimeDifferenceHours ?? 0
+            }
+        });
+
+        return Ok(ApiResponse<IEnumerable<TransactionResponseDto>>.Ok(response));
     }
 
-    /// <summary>Get a single transaction by ID with prediction details.</summary>
     [HttpGet("{id:guid}")]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<TransactionResponseDto>), 200)]
@@ -87,55 +148,195 @@ public class TransactionsController : ControllerBase
         var tx = await _uow.Transactions.GetByIdWithDetailsAsync(id, ct);
         if (tx is null || tx.MerchantId != merchantId) return NotFound();
 
-        var response = new TransactionResponseDto(
-            tx.Id, tx.MerchantId, tx.CustomerId, tx.Amount, tx.Currency, tx.Country, tx.Mcc,
-            tx.Status.ToString(), tx.CreatedAt,
-            tx.Prediction == null ? null : new PredictionResponseDto(
-                tx.Prediction.FraudProbability, tx.Prediction.Decision.ToString(),
-                tx.Prediction.ModelVersion, tx.Prediction.CreatedAt));
+        var response = new TransactionResponseDto
+        {
+            Id = tx.Id,
+            MerchantId = tx.MerchantId,
+            CustomerId = tx.CustomerId,
+            Amount = tx.Amount,
+            Currency = tx.Currency,
+            Status = tx.Status.ToString(),
+            TransactionCountry = tx.Country,
+            MerchantCountry = tx.MerchantCountry,
+            Mcc = tx.Mcc,
+            DeviceId = tx.DeviceId,
+            IpAddress = tx.IpAddress,
+            CreatedAt = tx.CreatedAt,
+            Prediction = tx.Prediction is null ? null : new PredictionResponseDto
+            {
+                FraudProbability = tx.Prediction.FraudProbability,
+                Decision = tx.Prediction.Decision.ToString(),
+                ModelVersion = tx.Prediction.ModelVersion,
+                CreatedAt = tx.Prediction.CreatedAt,
+                AmountRatio = tx.Prediction.AmountRatio ?? 0,
+                Hour = tx.Prediction.Hour ?? 0,
+                IsForeign = tx.Prediction.IsForeign ?? false,
+                UserDegree = tx.Prediction.UserDegree ?? 0,
+                MerchantDegree = tx.Prediction.MerchantDegree ?? 0,
+                UserFrequencyPerDay = tx.Prediction.UserFrequencyPerDay ?? 0,
+                TimeDifferenceHours = tx.Prediction.TimeDifferenceHours ?? 0
+            }
+        };
 
         return Ok(ApiResponse<TransactionResponseDto>.Ok(response));
     }
 
-    /// <summary>
-    /// Generate demo transactions for testing real-time updates.
-    /// This endpoint creates random transactions streamed to Kafka for processing.
-    /// </summary>
+    [HttpPatch("{id:guid}/review")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<TransactionResponseDto>), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> ReviewTransaction(Guid id, [FromBody] ReviewDecisionDto decision, CancellationToken ct)
+    {
+        var merchantId = GetMerchantIdFromToken();
+        if (merchantId == Guid.Empty) return Unauthorized();
+
+        var tx = await _uow.Transactions.GetByIdWithDetailsAsync(id, ct);
+        if (tx is null || tx.MerchantId != merchantId) return NotFound();
+
+        if (tx.Status != TransactionStatus.Review)
+            return BadRequest(ApiResponse<TransactionResponseDto>.Fail("Only Review transactions can be actioned."));
+
+        tx.Status = decision.Decision.Equals("approve", StringComparison.OrdinalIgnoreCase)
+            ? TransactionStatus.Approved
+            : TransactionStatus.Blocked;
+
+        if (tx.Prediction != null)
+        {
+            tx.Prediction.Decision = decision.Decision.Equals("approve", StringComparison.OrdinalIgnoreCase)
+                ? FraudDecision.Approved
+                : FraudDecision.Blocked;
+            tx.Prediction.AdminOverride = true;
+            tx.Prediction.AdminNote = decision.Note;
+            tx.Prediction.ReviewedAt = DateTime.UtcNow;
+        }
+
+        _uow.Transactions.Update(tx);
+        await _uow.SaveChangesAsync(ct);
+
+        var response = new TransactionResponseDto
+        {
+            Id = tx.Id,
+            MerchantId = tx.MerchantId,
+            CustomerId = tx.CustomerId,
+            Amount = tx.Amount,
+            Currency = tx.Currency,
+            Status = tx.Status.ToString(),
+            TransactionCountry = tx.Country,
+            MerchantCountry = tx.MerchantCountry,
+            Mcc = tx.Mcc,
+            DeviceId = tx.DeviceId,
+            IpAddress = tx.IpAddress,
+            CreatedAt = tx.CreatedAt,
+            Prediction = tx.Prediction is null ? null : new PredictionResponseDto
+            {
+                FraudProbability = tx.Prediction.FraudProbability,
+                Decision = tx.Prediction.Decision.ToString(),
+                ModelVersion = tx.Prediction.ModelVersion,
+                CreatedAt = tx.Prediction.CreatedAt,
+                AmountRatio = tx.Prediction.AmountRatio ?? 0,
+                Hour = tx.Prediction.Hour ?? 0,
+                IsForeign = tx.Prediction.IsForeign ?? false,
+                UserDegree = tx.Prediction.UserDegree ?? 0,
+                MerchantDegree = tx.Prediction.MerchantDegree ?? 0,
+                UserFrequencyPerDay = tx.Prediction.UserFrequencyPerDay ?? 0,
+                TimeDifferenceHours = tx.Prediction.TimeDifferenceHours ?? 0
+            }
+        };
+
+        return Ok(ApiResponse<TransactionResponseDto>.Ok(response, "Transaction review processed."));
+    }
+
+    [HttpPatch("{id:guid}/decision")]
+    [Authorize]
+    public async Task<IActionResult> ManualDecision(
+        Guid id,
+        [FromBody] ManualDecisionDto dto,
+        CancellationToken ct)
+    {
+        var merchantId = GetMerchantIdFromToken();
+        if (merchantId == Guid.Empty) return Unauthorized();
+
+        var tx = await _uow.Transactions.GetByIdWithDetailsAsync(id, ct);
+        if (tx is null || tx.MerchantId != merchantId)
+            return NotFound(ApiResponse<bool>.Fail("Transaction not found."));
+
+
+
+
+        tx.Status = dto.Decision == "Approved"
+            ? Domain.Enums.TransactionStatus.Approved
+            : Domain.Enums.TransactionStatus.Blocked;
+
+        await _uow.SaveChangesAsync(ct);
+
+        var response = new TransactionResponseDto
+        {
+            Id = tx.Id,
+            MerchantId = tx.MerchantId,
+            CustomerId = tx.CustomerId,
+            Amount = tx.Amount,
+            Currency = tx.Currency,
+            Status = tx.Status.ToString(),
+            TransactionCountry = tx.Country,
+            MerchantCountry = tx.MerchantCountry,
+            Mcc = tx.Mcc,
+            DeviceId = tx.DeviceId,
+            IpAddress = tx.IpAddress,
+            CreatedAt = tx.CreatedAt,
+            Prediction = tx.Prediction is null ? null : new PredictionResponseDto
+            {
+                FraudProbability = tx.Prediction.FraudProbability,
+                Decision = tx.Prediction.Decision.ToString(),
+                ModelVersion = tx.Prediction.ModelVersion,
+                CreatedAt = tx.Prediction.CreatedAt,
+                AmountRatio = tx.Prediction.AmountRatio ?? 0,
+                Hour = tx.Prediction.Hour ?? 0,
+                IsForeign = tx.Prediction.IsForeign ?? false,
+                UserDegree = tx.Prediction.UserDegree ?? 0,
+                MerchantDegree = tx.Prediction.MerchantDegree ?? 0,
+                UserFrequencyPerDay = tx.Prediction.UserFrequencyPerDay ?? 0,
+                TimeDifferenceHours = tx.Prediction.TimeDifferenceHours ?? 0
+            }
+        };
+
+        return Ok(ApiResponse<TransactionResponseDto>.Ok(
+            response, $"Transaction {dto.Decision} successfully."));
+    }
+
     [HttpPost("generate-demo")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), 200)]
-    [ProducesResponseType(401)]
-    public async Task<IActionResult> GenerateDemo([FromQuery] int count = 5, CancellationToken ct = default)
+    public async Task<IActionResult> GenerateDemo(
+        [FromQuery] int count = 10,
+        CancellationToken ct = default)
     {
         var merchantId = GetMerchantIdFromToken();
         if (merchantId == Guid.Empty) return Unauthorized();
 
         var random = new Random();
-        var currencies = new[] { "USD", "EUR", "GBP", "JPY", "AED" };
-        var countries = new[] { "US", "UK", "DE", "FR", "JP", "EG", "AE" };
-        var mccs = new[] { 5411, 5412, 5691, 5999, 6010, 6211, 7011 };
+        var currencies = new[] { "USD", "EUR", "EGP", "GBP" };
+        var countries  = new[] { "EG", "US", "DE", "FR", "AE", "UK" };
+        var mccs       = new[] { 5411, 5812, 4829, 7011, 5912, 6011, 7995 };
 
         var created = 0;
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < Math.Min(count, 20); i++)
         {
             try
             {
-                var request = new TransactionRequestDto(
-                    CustomerId: $"DEMO-{Guid.NewGuid().ToString().Substring(0, 8)}",
-                    Amount: (decimal)(random.NextDouble() * 5000 + 10),
-                    Currency: currencies[random.Next(currencies.Length)],
-                    Country: countries[random.Next(countries.Length)],
-                    Mcc: mccs[random.Next(mccs.Length)],
-                    DeviceId: Guid.NewGuid().ToString(),
-                    IpAddress: $"192.168.{random.Next(256)}.{random.Next(256)}"
-                );
+                var request = new TransactionRequestDto
+                {
+                    CustomerId = $"DEMO-{Guid.NewGuid().ToString()[..8]}",
+                    Amount = (decimal)(random.NextDouble() * 5000 + 10),
+                    Currency = currencies[random.Next(currencies.Length)],
+                    TransactionCountry = countries[random.Next(countries.Length)],
+                    Mcc = mccs[random.Next(mccs.Length)],
+                    DeviceId = Guid.NewGuid().ToString(),
+                    IpAddress = $"192.168.{random.Next(256)}.{random.Next(256)}"
+                };
 
-                var command = new SubmitTransactionCommand(merchantId, "EG", request);
-                await _mediator.Send(command, ct);
+                await Submit(request, ct);
                 created++;
-
-                // Small delay to spread out Kafka events
-                await Task.Delay(100, ct);
+                await Task.Delay(200, ct);
             }
             catch (Exception ex)
             {
@@ -145,7 +346,7 @@ public class TransactionsController : ControllerBase
 
         return Ok(ApiResponse<object>.Ok(
             new { generated = created, requested = count },
-            $"{created} transactions generated successfully"));
+            $"{created} demo transactions submitted successfully"));
     }
 
     private Guid GetMerchantIdFromToken()

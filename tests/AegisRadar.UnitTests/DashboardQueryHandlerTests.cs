@@ -1,10 +1,6 @@
-using AegisRadar.Application.DTOs;
-using AegisRadar.Application.Features.Alerts.Queries;
-using AegisRadar.Application.Features.Dashboard.Queries;
 using AegisRadar.Domain.Entities;
 using AegisRadar.Domain.Enums;
 using AegisRadar.Domain.Interfaces;
-using AegisRadar.Application.Interfaces;
 using Moq;
 
 namespace AegisRadar.UnitTests;

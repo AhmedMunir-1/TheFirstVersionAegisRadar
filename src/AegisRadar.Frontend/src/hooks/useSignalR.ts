@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { signalRService } from "@/services/signalRService";
 import { useDashboardStore } from "@/store/dashboardStore";
 import { useAlertStore } from "@/store/alertStore";
@@ -8,6 +8,9 @@ export function useSignalR(): void {
   const authToken = useAuthStore((state) => state.token);
   const dashboardStore = useDashboardStore();
   const alertStore = useAlertStore();
+  const flushIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRefreshRef = useRef<number>(0);
+  const isRefreshingRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!authToken) {
@@ -15,9 +18,8 @@ export function useSignalR(): void {
     }
 
     let unsubscribeTransaction: (() => void) | undefined;
-    let unsubscribeFraudDetected: (() => void) | undefined;
     let unsubscribeAlert: (() => void) | undefined;
-    let unsubscribeResolved: (() => void) | undefined;
+    let unsubscribeDashboardRefresh: (() => void) | undefined;
     let unsubscribeStatus: (() => void) | undefined;
 
     const setupSignalR = async () => {
@@ -26,44 +28,50 @@ export function useSignalR(): void {
         await signalRService.connect();
         dashboardStore.setSignalRStatus("Connected");
 
-        // Subscribe to events
+        // Set up throttled chart update flush (every 1.5 seconds for better performance)
+        flushIntervalRef.current = setInterval(() => {
+          dashboardStore.flushPendingChartUpdates();
+        }, 1500);
+
+        // Subscribe to TransactionUpdated (real backend event)
         unsubscribeTransaction = signalRService.onTransactionProcessed((transaction) => {
-          console.log("📊 TransactionProcessed:", transaction.id);
+          console.log("📊 TransactionUpdated:", transaction.id);
           dashboardStore.addTransaction(transaction);
           dashboardStore.updateCurrentMinuteBucket(transaction);
         });
 
-        unsubscribeFraudDetected = signalRService.onFraudDetected((data) => {
-          console.log("🚨 FraudDetected:", data.transactionId);
-          dashboardStore.updateTransaction(data.transactionId, {
-            prediction: {
-              fraudProbability: data.fraudProbability,
-              decision: data.decision,
-              modelVersion: "1.0.0",
-              createdAt: new Date().toISOString(),
-            },
-          });
-        });
-
+        // Subscribe to FraudAlertReceived (real backend event)
         unsubscribeAlert = signalRService.onAlertCreated((alert) => {
-          console.log("🔔 AlertCreated:", alert.id);
+          console.log("🔔 FraudAlertReceived:", alert.id);
           alertStore.addAlert(alert);
         });
 
-        unsubscribeResolved = signalRService.onTransactionResolved((data) => {
-          console.log("✅ TransactionResolved:", data.transactionId);
-          dashboardStore.updateTransaction(data.transactionId, {
-            status: data.status,
-          });
+        // Subscribe to DashboardRefresh (real backend event)
+        unsubscribeDashboardRefresh = signalRService.onDashboardRefresh(() => {
+          console.log("🔄 DashboardRefresh received");
+          if (!isRefreshingRef.current) {
+            isRefreshingRef.current = true;
+            dashboardStore.loadInitialData().catch(console.error).finally(() => {
+              isRefreshingRef.current = false;
+            });
+          }
         });
 
         unsubscribeStatus = signalRService.onConnectionStatusChanged((status) => {
           console.log("SignalR status:", status);
           dashboardStore.setSignalRStatus(status);
 
-          // On reconnect, refetch initial data
-          if (status === "Connected") {
-            dashboardStore.loadInitialData().catch(console.error);
+          // Only refresh data on reconnect (avoid multiple refreshes)
+          // AND only if we haven't refreshed in the last 5 seconds
+          if (status === "Connected" && !isRefreshingRef.current) {
+            const now = Date.now();
+            if (now - lastRefreshRef.current > 5000) {
+              isRefreshingRef.current = true;
+              dashboardStore.loadInitialData().catch(console.error).finally(() => {
+                isRefreshingRef.current = false;
+                lastRefreshRef.current = now;
+              });
+            }
           }
         });
       } catch (error) {
@@ -76,12 +84,13 @@ export function useSignalR(): void {
 
     return () => {
       signalRService.disconnect().catch(console.error);
+      if (flushIntervalRef.current) {
+        clearInterval(flushIntervalRef.current);
+      }
       unsubscribeTransaction?.();
-      unsubscribeFraudDetected?.();
       unsubscribeAlert?.();
-      unsubscribeResolved?.();
+      unsubscribeDashboardRefresh?.();
       unsubscribeStatus?.();
     };
   }, [authToken, dashboardStore, alertStore]);
 }
-

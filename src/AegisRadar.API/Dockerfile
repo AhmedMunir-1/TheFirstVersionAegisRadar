@@ -4,7 +4,6 @@ WORKDIR /src
 
 # Copy csproj files and restore (layer cache optimisation)
 COPY ["src/AegisRadar.API/AegisRadar.API.csproj",           "src/AegisRadar.API/"]
-COPY ["src/AegisRadar.Application/AegisRadar.Application.csproj", "src/AegisRadar.Application/"]
 COPY ["src/AegisRadar.Domain/AegisRadar.Domain.csproj",     "src/AegisRadar.Domain/"]
 COPY ["src/AegisRadar.Infrastructure/AegisRadar.Infrastructure.csproj", "src/AegisRadar.Infrastructure/"]
 COPY ["src/AegisRadar.Shared/AegisRadar.Shared.csproj",     "src/AegisRadar.Shared/"]

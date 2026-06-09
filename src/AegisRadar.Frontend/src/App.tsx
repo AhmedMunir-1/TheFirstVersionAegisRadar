@@ -13,6 +13,7 @@ import Alerts from "./pages/Alerts";
 import Transactions from "./pages/Transactions";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
+import { SignalRProvider } from "./components/SignalRProvider";
 
 const queryClient = new QueryClient();
 
@@ -30,7 +31,9 @@ const App = () => (
             
             <Route path="/dashboard" element={
                 <ProtectedRoute>
-                    <DashboardLayout />
+                    <SignalRProvider>
+                        <DashboardLayout />
+                    </SignalRProvider>
                 </ProtectedRoute>
             }>
                 <Route index element={<Dashboard />} />

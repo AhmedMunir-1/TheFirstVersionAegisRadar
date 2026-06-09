@@ -1,4 +1,4 @@
-using AegisRadar.Application.Interfaces;
+using AegisRadar.Domain.Interfaces;
 using AegisRadar.Shared.Events;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
