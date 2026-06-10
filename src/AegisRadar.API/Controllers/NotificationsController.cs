@@ -64,6 +64,28 @@ public class NotificationsController : ControllerBase
             return StatusCode(500, new { error = "Failed to send refresh signal" });
         }
     }
+
+    /// <summary>
+    /// Broadcast a transaction update to a specific merchant's connected clients.
+    /// </summary>
+    [HttpPost("transaction-update")]
+    public async Task<IActionResult> SendTransactionUpdate([FromBody] BroadcastTransactionUpdateRequest request, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _hubContext.Clients
+                .Group($"merchant-{request.MerchantId}")
+                .SendAsync("TransactionUpdated", request.Transaction, cancellationToken);
+
+            _logger.LogInformation("Sent transaction update for merchant {MerchantId}, TxId: {TxId}", request.MerchantId, request.Transaction.Id);
+            return Ok(new { message = "Transaction update broadcasted successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to broadcast transaction update for merchant {MerchantId}", request.MerchantId);
+            return StatusCode(500, new { error = "Failed to broadcast transaction update" });
+        }
+    }
 }
 
 /// <summary>Request model for broadcasting fraud alerts.</summary>
@@ -77,4 +99,11 @@ public class BroadcastFraudAlertRequest
 public class DashboardRefreshRequest
 {
     public Guid MerchantId { get; set; }
+}
+
+/// <summary>Request model for broadcasting transaction updates.</summary>
+public class BroadcastTransactionUpdateRequest
+{
+    public Guid MerchantId { get; set; }
+    public required TransactionResponseDto Transaction { get; set; }
 }

@@ -24,10 +24,10 @@ export interface DashboardState {
   // Actions
   loadInitialData: () => Promise<void>;
   addTransaction: (transaction: TransactionResponseDto) => void;
+  addTransactions: (transactions: TransactionResponseDto[]) => void;
   updateTransaction: (id: string, updates: Partial<TransactionResponseDto>) => void;
   setChartData: (data: ChartDataPoint[]) => void;
   updateCurrentMinuteBucket: (transaction: TransactionResponseDto) => void;
-  flushPendingChartUpdates: () => void;
   setSignalRStatus: (status: DashboardState["signalRStatus"]) => void;
   loadHistoricalTrends: (days: number) => Promise<void>;
   setStats: (stats: DashboardStatsDto) => void;
@@ -54,6 +54,9 @@ const statsToFallbackChartPoint = (stats: DashboardStatsDto): ChartDataPoint => 
   totalAmount: stats.totalAmountToday ?? 0,
   avgFraudProbability: (stats.fraudRateToday ?? 0) / 100,
 });
+
+let chartUpdateTimer: NodeJS.Timeout | null = null;
+const pendingChartUpdates: Array<{ amount: number; fraudProbability: number }> = [];
 
 export const useDashboardStore = create<DashboardState>()(
   immer((set, get) => ({
@@ -86,11 +89,6 @@ export const useDashboardStore = create<DashboardState>()(
           timeoutPromise,
         ]) as [DashboardStatsDto, FraudTrendDto[], TransactionResponseDto[]];
 
-        // Debug: remove after confirming field names are correct
-        console.log("STATS FROM API:", JSON.stringify(stats));
-        console.log("TRENDS FROM API:", JSON.stringify(trends?.slice(0, 2)));
-        console.log("RECENT FROM API:", JSON.stringify(recent?.slice(0, 1)));
-
         set((state) => {
           state.stats = stats;
           state.trends = trends;
@@ -105,6 +103,9 @@ export const useDashboardStore = create<DashboardState>()(
           } else {
             state.chartData = [];
           }
+
+          console.log("📊 Chart data loaded:", state.chartData.length, "points");
+          console.log("📊 First point:", state.chartData[0]);
         });
       } catch (error) {
         console.error("loadInitialData error:", error);
@@ -146,6 +147,53 @@ export const useDashboardStore = create<DashboardState>()(
       });
     },
 
+    addTransactions: (newTransactions) => {
+      if (newTransactions.length === 0) return;
+      
+      set((state) => {
+        state.transactions.unshift(...newTransactions);
+        if (state.transactions.length > 500) {
+          state.transactions = state.transactions.slice(0, 500);
+        }
+
+        if (state.stats) {
+          let additionalAmount = 0;
+          let additionalBlocked = 0;
+          let additionalReview = 0;
+          let additionalApproved = 0;
+          let additionalFraudulent = 0;
+
+          for (const tx of newTransactions) {
+            additionalAmount += tx.amount;
+            if (tx.status === "Blocked") {
+              additionalBlocked += 1;
+              additionalFraudulent += 1;
+            }
+            if (tx.status === "Review") {
+              additionalReview += 1;
+            }
+            if (tx.status === "Approved") {
+              additionalApproved += 1;
+            }
+          }
+
+          state.stats.totalTransactionsToday += newTransactions.length;
+          state.stats.totalAmountToday += additionalAmount;
+          state.stats.blockedCount += additionalBlocked;
+          state.stats.fraudulentCount += additionalFraudulent;
+          state.stats.reviewCount += additionalReview;
+          state.stats.pendingReviewCount += additionalReview;
+          state.stats.approvedCount += additionalApproved;
+
+          // Recalculate fraudRateToday
+          const todayTotal = state.stats.totalTransactionsToday;
+          const todayBlocked = Math.round(((state.stats.fraudRateToday ?? 0) / 100) * (todayTotal - newTransactions.length));
+          const newTotalBlocked = todayBlocked + additionalBlocked;
+          state.stats.fraudRateToday = todayTotal > 0 ? (newTotalBlocked / todayTotal) * 100 : 0;
+        }
+      });
+    },
+
     updateTransaction: (id: string, updates) => {
       set((state) => {
         const idx = state.transactions.findIndex((t) => t.id === id);
@@ -162,37 +210,34 @@ export const useDashboardStore = create<DashboardState>()(
     },
 
     updateCurrentMinuteBucket: (transaction) => {
-      set((state) => {
-        state.pendingChartUpdates.push({
-          amount: transaction.amount,
-          fraudProbability: transaction.prediction?.fraudProbability ?? 0,
-        });
+      console.log("📊 Chart updated with new transaction");
+      pendingChartUpdates.push({
+        amount: transaction.amount,
+        fraudProbability: transaction.prediction?.fraudProbability ?? 0,
       });
-    },
 
-    flushPendingChartUpdates: () => {
-      set((state) => {
-        if (state.chartData.length === 0 || state.pendingChartUpdates.length === 0) {
-          state.pendingChartUpdates = [];
-          return;
-        }
+      if (chartUpdateTimer) clearTimeout(chartUpdateTimer);
+      chartUpdateTimer = setTimeout(() => {
+        const updates = [...pendingChartUpdates];
+        pendingChartUpdates.length = 0;
 
-        const lastPoint = state.chartData[state.chartData.length - 1];
-
-        for (const update of state.pendingChartUpdates) {
-          lastPoint.transactionCount += 1;
-          lastPoint.totalAmount += update.amount;
-          if (update.fraudProbability > 0.5) {
-            lastPoint.fraudCount += 1;
+        set((state) => {
+          if (state.chartData.length === 0 || updates.length === 0) return;
+          const lastPoint = state.chartData[state.chartData.length - 1];
+          
+          for (const update of updates) {
+            lastPoint.transactionCount += 1;
+            lastPoint.totalAmount += update.amount;
+            if (update.fraudProbability > 0.5) {
+              lastPoint.fraudCount += 1;
+            }
           }
-        }
-
-        const totalFraud = state.chartData.reduce((sum, p) => sum + p.fraudCount, 0);
-        const totalTxs = state.chartData.reduce((sum, p) => sum + p.transactionCount, 0);
-        lastPoint.avgFraudProbability = totalTxs > 0 ? totalFraud / totalTxs : 0;
-
-        state.pendingChartUpdates = [];
-      });
+          
+          const totalFraud = state.chartData.reduce((sum, p) => sum + p.fraudCount, 0);
+          const totalTxs = state.chartData.reduce((sum, p) => sum + p.transactionCount, 0);
+          lastPoint.avgFraudProbability = totalTxs > 0 ? totalFraud / totalTxs : 0;
+        });
+      }, 2000);
     },
 
     setSignalRStatus: (status) => {

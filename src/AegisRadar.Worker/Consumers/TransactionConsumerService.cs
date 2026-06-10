@@ -248,6 +248,39 @@ public class TransactionConsumerService : BackgroundService
             {
                 await SendSignalRAlertAsync(evt.MerchantId, alert, ct);
             }
+
+            // 8. Always push TransactionUpdated for dashboard real-time updates
+            var transactionDto = new TransactionResponseDto
+            {
+                Id = transaction.Id,
+                MerchantId = transaction.MerchantId,
+                CustomerId = transaction.CustomerId,
+                Amount = transaction.Amount,
+                Currency = transaction.Currency,
+                Status = transaction.Status.ToString(),
+                TransactionCountry = transaction.Country,
+                MerchantCountry = transaction.MerchantCountry,
+                Mcc = transaction.Mcc,
+                DeviceId = transaction.DeviceId,
+                IpAddress = transaction.IpAddress,
+                CreatedAt = transaction.CreatedAt,
+                Prediction = new PredictionResponseDto
+                {
+                    FraudProbability = predictionEntity.FraudProbability,
+                    Decision = predictionEntity.Decision.ToString(),
+                    ModelVersion = predictionEntity.ModelVersion,
+                    CreatedAt = predictionEntity.CreatedAt,
+                    AmountRatio = history.AmountRatio,
+                    Hour = history.Hour,
+                    IsForeign = history.IsForeign ? true : false,
+                    UserDegree = history.UserDegree,
+                    MerchantDegree = history.MerchantDegree,
+                    UserFrequencyPerDay = history.UserFrequencyPerDay,
+                    TimeDifferenceHours = history.TimeDifferenceHours
+                }
+            };
+
+            await SendSignalRTransactionUpdateAsync(evt.MerchantId, transactionDto, ct);
         }
         catch (Exception ex)
         {
@@ -297,6 +330,36 @@ public class TransactionConsumerService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "SignalR notification failed for merchant {MerchantId}", merchantId);
+            // Non-critical — don't re-throw
+        }
+    }
+
+    private async Task SendSignalRTransactionUpdateAsync(Guid merchantId, TransactionResponseDto transaction, CancellationToken ct)
+    {
+        try
+        {
+            var apiBaseUrl = _signalRHubUrl.Replace("/hubs/fraud-alerts", string.Empty);
+            var updateUrl = $"{apiBaseUrl}/api/notifications/transaction-update";
+
+            using (var client = new HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(5);
+                var request = new
+                {
+                    merchantId = merchantId,
+                    transaction = transaction
+                };
+
+                var response = await client.PostAsJsonAsync(updateUrl, request, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Failed to send transaction update. Status: {StatusCode}", response.StatusCode);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SignalR transaction update failed for merchant {MerchantId}", merchantId);
             // Non-critical — don't re-throw
         }
     }

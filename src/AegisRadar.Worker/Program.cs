@@ -20,7 +20,7 @@ try
     builder.Services.AddInfrastructure(builder.Configuration);
 
     builder.Services.AddHostedService<TransactionConsumerService>();
-    // builder.Services.AddHostedService<DemoTransactionGeneratorService>();
+    builder.Services.AddHostedService<DemoTransactionGeneratorService>();
 
     var host = builder.Build();
     Log.Information("AegisRadar Worker starting...");

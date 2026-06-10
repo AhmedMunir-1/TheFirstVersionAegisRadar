@@ -7,13 +7,7 @@ import { GeographyBarChart as _GeographyBarChart } from "./GeographyBarChart";
 import type { ChartDataPoint } from "@/store/dashboardStore";
 
 // Memoize all chart components to prevent unnecessary re-renders
-export const TransactionVolumeChart = React.memo(_TransactionVolumeChart, (prev, next) => {
-  // Custom comparison: only re-render if data actually changed
-  return (
-    prev.data === next.data &&
-    prev.isLoading === next.isLoading
-  );
-});
+export const TransactionVolumeChart = React.memo(_TransactionVolumeChart);
 TransactionVolumeChart.displayName = "TransactionVolumeChart";
 
 export const FraudProbabilityChart = React.memo(_FraudProbabilityChart, (prev, next) => {

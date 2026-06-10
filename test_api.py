@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+
 """
 AegisRadar API Test Suite
 Comprehensive test script for the AegisRadar fraud detection platform
@@ -12,11 +14,15 @@ import time
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+
+
 # Configuration
 BASE_URL = "http://localhost:5099/api"
 API_KEY = "ar_demo_key_aegisradar_2024_secure"
 DEMO_EMAIL = "demo@aegisradar.io"
 DEMO_PASSWORD = "Demo@1234"
+
+
 
 class AegisRadarTester:
     def __init__(self, base_url: str = BASE_URL):
@@ -187,6 +193,7 @@ class AegisRadarTester:
                 f"(submitted={results['submitted']}, failed={results['failed']})"
             )
         return results
+    
 
     def test_submit_high_risk_transaction(self) -> Optional[str]:
         """Submit a high-risk transaction (cross-border, high amount)"""
@@ -449,7 +456,8 @@ class AegisRadarTester:
         print("="*70 + "\n")
 
         return results
-
+    
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AegisRadar API test and seed utility")

@@ -232,7 +232,7 @@ public static class DbSeeder
                 Console.WriteLine("🔄 Creating 50 new transactions...");
 
 
-                for (int i = 0; i < 50; i++)
+                for (int i = 0; i < 49; i++)
                 {
                     var statusIdx = i < 35 ? 0 : (i < 45 ? 1 : 2);
                     var txId      = Guid.NewGuid();

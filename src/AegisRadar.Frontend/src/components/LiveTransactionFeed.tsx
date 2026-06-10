@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Pause, Play, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,14 +55,51 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
   const [minFraudFilter, setMinFraudFilter] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
-  const filteredTransactions = useMemo(() => {
-    return transactions
-      .filter((t) => (t.prediction?.fraudProbability ?? 0) >= minFraudFilter)
-      .filter((t) => !statusFilter || t.status === statusFilter)
-      .slice(0, 50);
-  }, [transactions, minFraudFilter, statusFilter]);
+  const [displayedTransactions, setDisplayedTransactions] = useState<TransactionResponseDto[]>([]);
+  const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pausedSnapshotRef = useRef<TransactionResponseDto[]>([]);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
-  const displayTransactions = filteredTransactions;
+  useEffect(() => {
+    // When pausing, save the current snapshot
+    if (isPaused) {
+      pausedSnapshotRef.current = displayedTransactions;
+      return;
+    }
+
+    // When running, throttle updates to every 800ms
+    if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
+    updateTimerRef.current = setTimeout(() => {
+      const filtered = transactions
+        .filter((t) => (t.prediction?.fraudProbability ?? 0) >= minFraudFilter)
+        .filter((t) => !statusFilter || t.status === statusFilter)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 20);
+      setDisplayedTransactions(filtered);
+    }, 500);
+
+    return () => {
+      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, isPaused, minFraudFilter, statusFilter]);
+
+  // Track new IDs for animation
+  const latestId = displayedTransactions[0]?.id;
+  useEffect(() => {
+    if (!latestId) return;
+    setNewIds((prev) => new Set([...prev, latestId]));
+    
+    const timeout = setTimeout(() => {
+      setNewIds((prev) => {
+        const next = new Set(prev);
+        next.delete(latestId);
+        return next;
+      });
+    }, 2000); // Wait long enough for animation to finish
+
+    return () => clearTimeout(timeout);
+  }, [latestId]);
 
   const unreadCount = transactions.length;
 
@@ -90,22 +127,27 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
         <div className="flex gap-2">
           <Button
             size="sm"
-            variant={isPaused ? "default" : "outline"}
+            variant="outline"
             onClick={() => setIsPaused(!isPaused)}
-            className="gap-1"
+            className={`gap-1 ${isPaused
+              ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
+              : "border-slate-600 text-gray-300"}`}
           >
             {isPaused ? (
-              <>
-                <Play className="w-4 h-4" /> Resume
-              </>
+              <><Play className="w-4 h-4" /> Resume</>
             ) : (
-              <>
-                <Pause className="w-4 h-4" /> Pause
-              </>
+              <><Pause className="w-4 h-4" /> Pause</>
             )}
           </Button>
         </div>
       </div>
+
+      {isPaused && (
+        <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-4 py-2 text-xs text-yellow-400 flex items-center gap-2">
+          <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+          Feed paused — new transactions are being collected
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-slate-800/30 border-b border-slate-700 p-3 flex gap-2 items-center flex-wrap">
@@ -135,13 +177,13 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
 
       {/* Feed */}
       <div className="flex-1 overflow-y-auto">
-        {displayTransactions.length === 0 ? (
+        {displayedTransactions.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             No transactions match the filters
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {displayTransactions.map((transaction, idx) => {
+            {displayedTransactions.map((transaction, idx) => {
               const fraudProbability = transaction.prediction?.fraudProbability ?? 0;
               const customerLabel = "Customer " + (transaction.customerId?.slice(0, 8) ?? "Unknown");
               return (
@@ -149,8 +191,10 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
                   key={transaction.id}
                   onClick={() => onTransactionClick?.(transaction)}
                   className={`p-3 rounded border transition-all duration-300 cursor-pointer ${
+                    newIds.has(transaction.id) ? "transaction-new" : ""
+                  } ${
                     idx === 0
-                      ? "bg-slate-700/50 border-blue-500/50 animate-pulse"
+                      ? "bg-slate-700/50 border-blue-500/50"
                       : "bg-slate-800/30 border-slate-700/50 hover:border-slate-600/50 hover:bg-slate-700/40"
                   }`}
                 >
@@ -181,7 +225,7 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
                     {/* Middle: Country and Fraud Badge */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-xs bg-slate-700 px-2 py-1 rounded text-gray-300">
-                        {transaction.transactionCountry || "Unknown"}
+                        {transaction.transactionCountry ?? "Unknown"}
                       </span>
                       <div
                         className={`text-xs font-semibold px-2 py-1 rounded border ${getFraudColor(
@@ -194,8 +238,19 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
 
                     {/* Right: Time */}
                     <div className="flex-shrink-0 text-right">
-                      <div className="text-xs text-gray-500">
-                        {formatDistanceToNow(new Date(transaction.createdAt), { addSuffix: true })}
+                      <div className="text-xs text-gray-300 font-mono">
+                        {new Date(transaction.createdAt).toLocaleTimeString("en-US", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                          hour12: false
+                        })}
+                      </div>
+                      <div className="text-xs text-gray-600 font-mono">
+                        {new Date(transaction.createdAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric"
+                        })}
                       </div>
                     </div>
                   </div>
@@ -208,7 +263,7 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
 
       {/* Footer */}
       <div className="bg-slate-800/50 border-t border-slate-700 px-4 py-2 text-xs text-gray-500">
-        Showing {displayTransactions.length} of {transactions.length} today
+        Showing {displayedTransactions.length} of {transactions.length} today
       </div>
     </div>
   );

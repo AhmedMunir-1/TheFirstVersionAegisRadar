@@ -49,6 +49,10 @@ export const useAlertStore = create<AlertState>()(
 
     addAlert: (alert: AlertDto) => {
       set((state) => {
+        // Deduplicate — ignore if this alert ID is already present
+        const exists = state.alerts.some((a) => a.id === alert.id);
+        if (exists) return;
+
         state.alerts.unshift(alert);
         if (!alert.isRead) {
           state.unreadCount += 1;

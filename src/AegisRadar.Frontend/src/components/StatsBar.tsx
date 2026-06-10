@@ -1,10 +1,46 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import type { DashboardStatsDto } from "@/types/api";
 
+// ─── Animated counter hook ────────────────────────────────────────────────────
+function useAnimatedNumber(target: number, duration = 600): number {
+  const [display, setDisplay] = useState(target);
+  const prevRef = useRef(target);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const from = prevRef.current;
+    if (from === target) return;
+
+    const start = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(from + (target - from) * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        prevRef.current = target;
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [target, duration]);
+
+  return display;
+}
+
+// ─── StatCard ─────────────────────────────────────────────────────────────────
 interface StatCardProps {
   label: string;
-  value: string | number;
+  value: number;
+  formatter?: (v: number) => string;
   unit?: string;
   change?: number;
   isAlert?: boolean;
@@ -14,11 +50,14 @@ interface StatCardProps {
 const StatCard: React.FC<StatCardProps> = ({
   label,
   value,
+  formatter,
   unit,
   change,
   isAlert = false,
   sparkline = [],
 }) => {
+  const animated = useAnimatedNumber(value);
+  const displayValue = formatter ? formatter(animated) : animated.toString();
   const isNegative = change !== undefined && change < 0;
 
   return (
@@ -49,7 +88,9 @@ const StatCard: React.FC<StatCardProps> = ({
         )}
       </div>
       <div className="flex items-baseline gap-2">
-        <div className="text-2xl font-bold text-white tabular-nums">{value}</div>
+        <div className="text-2xl font-bold text-white tabular-nums transition-all">
+          {displayValue}
+        </div>
         {unit && <span className="text-sm text-gray-500">{unit}</span>}
       </div>
       {sparkline && sparkline.length > 0 && (
@@ -63,7 +104,7 @@ const StatCard: React.FC<StatCardProps> = ({
                 className="flex-1 bg-blue-600 rounded-sm opacity-70 hover:opacity-100 transition-opacity"
                 style={{ height: `${height}%` }}
                 title={v.toString()}
-              ></div>
+              />
             );
           })}
         </div>
@@ -72,6 +113,7 @@ const StatCard: React.FC<StatCardProps> = ({
   );
 };
 
+// ─── StatsBar ─────────────────────────────────────────────────────────────────
 interface StatsBarProps {
   stats: DashboardStatsDto;
   unreadAlerts?: number;
@@ -80,28 +122,27 @@ interface StatsBarProps {
 }
 
 const formatCurrency = (value: number): string => {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  }
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(1)}K`;
-  }
+  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
   return `$${value.toFixed(0)}`;
 };
 
-export const StatsBar: React.FC<StatsBarProps> = ({ 
-  stats, 
+// Multiply by 10 before passing to the animated counter so it handles decimals
+// (counter only works with integers), then divide back in the formatter.
+const formatPercent = (v: number) => `${(v / 10).toFixed(1)}`;
+
+export const StatsBar: React.FC<StatsBarProps> = ({
+  stats,
   unreadAlerts = 0,
   avgFraudProbability = 0,
-  isLoading = false 
+  isLoading = false,
 }) => {
-  // Guard against undefined stats or missing properties
   if (!stats || isLoading) {
     return (
       <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
         <div className="flex items-center justify-center h-24">
           <div className="flex flex-col items-center gap-2">
-            <div className="w-8 h-8 border-4 border-slate-700 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="w-8 h-8 border-4 border-slate-700 border-t-blue-600 rounded-full animate-spin" />
             <p className="text-sm text-gray-500">Loading stats...</p>
           </div>
         </div>
@@ -109,9 +150,9 @@ export const StatsBar: React.FC<StatsBarProps> = ({
     );
   }
 
-  // Use the exact field names from DashboardStatsDto (totalTransactionsToday, totalAmountToday, fraudRateToday, blockedCount)
-  const fraudRateThreshold = (stats.fraudRateToday ?? 0) > 5;
-  const avgFraudProbabilityValue = avgFraudProbability ?? 0;
+  const fraudRateToday = stats.fraudRateToday ?? 0;
+  const avgFraudPct = (avgFraudProbability ?? 0) * 100;
+  const fraudRateThreshold = fraudRateToday > 5;
 
   return (
     <div className="w-full bg-slate-900/50 border border-slate-800 rounded-lg p-6">
@@ -123,11 +164,14 @@ export const StatsBar: React.FC<StatsBarProps> = ({
         />
         <StatCard
           label="Total Amount"
-          value={formatCurrency(stats.totalAmountToday ?? 0)}
+          value={Math.round(stats.totalAmountToday ?? 0)}
+          formatter={formatCurrency}
         />
+        {/* Fraud Rate: pass value * 10 so the integer counter can animate decimals */}
         <StatCard
           label="Fraud Rate"
-          value={(stats.fraudRateToday ?? 0).toFixed(1)}
+          value={Math.round(fraudRateToday * 10)}
+          formatter={formatPercent}
           unit="%"
           isAlert={fraudRateThreshold}
         />
@@ -138,14 +182,15 @@ export const StatsBar: React.FC<StatsBarProps> = ({
         />
         <StatCard
           label="Unread Alerts"
-          value={unreadAlerts ?? 0}
+          value={unreadAlerts}
           change={-2}
         />
         <StatCard
           label="Avg Fraud %"
-          value={(avgFraudProbabilityValue * 100).toFixed(1)}
+          value={Math.round(avgFraudPct * 10)}
+          formatter={formatPercent}
           unit="%"
-          isAlert={avgFraudProbabilityValue * 100 > 50}
+          isAlert={avgFraudPct > 50}
         />
       </div>
     </div>

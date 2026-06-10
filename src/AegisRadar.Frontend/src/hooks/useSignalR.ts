@@ -22,28 +22,44 @@ export function useSignalR(): void {
     let unsubscribeDashboardRefresh: (() => void) | undefined;
     let unsubscribeStatus: (() => void) | undefined;
 
+    const transactionBuffer = useRef<any[]>([]);
+    const alertBuffer = useRef<any[]>([]);
+
     const setupSignalR = async () => {
       try {
         // Connect to SignalR
         await signalRService.connect();
         dashboardStore.setSignalRStatus("Connected");
 
-        // Set up throttled chart update flush (every 1.5 seconds for better performance)
+        // Flush transaction buffer every 500ms for a more "live" feel
         flushIntervalRef.current = setInterval(() => {
-          dashboardStore.flushPendingChartUpdates();
-        }, 1500);
+          if (transactionBuffer.current.length > 0) {
+            const batch = [...transactionBuffer.current];
+            transactionBuffer.current = [];
+            const { addTransaction, updateCurrentMinuteBucket } = useDashboardStore.getState();
+            batch.forEach((tx) => {
+              addTransaction(tx);
+              updateCurrentMinuteBucket(tx);
+            });
+          }
+          if (alertBuffer.current.length > 0) {
+            const batch = [...alertBuffer.current];
+            alertBuffer.current = [];
+            const { addAlert } = useAlertStore.getState();
+            batch.forEach((alert) => addAlert(alert));
+          }
+        }, 500);
 
         // Subscribe to TransactionUpdated (real backend event)
         unsubscribeTransaction = signalRService.onTransactionProcessed((transaction) => {
-          console.log("📊 TransactionUpdated:", transaction.id);
-          dashboardStore.addTransaction(transaction);
-          dashboardStore.updateCurrentMinuteBucket(transaction);
+          console.log("📨 SignalR TransactionUpdated received:", transaction.id);
+          transactionBuffer.current.push(transaction);
         });
 
         // Subscribe to FraudAlertReceived (real backend event)
         unsubscribeAlert = signalRService.onAlertCreated((alert) => {
-          console.log("🔔 FraudAlertReceived:", alert.id);
-          alertStore.addAlert(alert);
+          console.log("🔔 SignalR FraudAlertReceived:", alert.id);
+          alertBuffer.current.push(alert);
         });
 
         // Subscribe to DashboardRefresh (real backend event)

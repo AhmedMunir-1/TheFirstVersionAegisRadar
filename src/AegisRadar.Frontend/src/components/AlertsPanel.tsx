@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { Bell, X, CheckSquare, Square } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { Bell, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import type { AlertDto } from "@/types/api";
 
 interface AlertsPanelProps {
@@ -11,23 +11,19 @@ interface AlertsPanelProps {
   isLoading?: boolean;
 }
 
-const getSeverityColor = (severity: string) => {
+const getSeverityStyles = (severity: string) => {
   switch (severity) {
     case "Critical":
-      return "bg-red-500/20 text-red-400 border-red-500/50";
+      return "bg-red-500/10 text-red-500 border-red-500/20";
     case "High":
-      return "bg-orange-500/20 text-orange-400 border-orange-500/50";
+      return "bg-orange-500/10 text-orange-500 border-orange-500/20";
     case "Medium":
-      return "bg-yellow-500/20 text-yellow-400 border-yellow-500/50";
+      return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
     case "Low":
-      return "bg-blue-500/20 text-blue-400 border-blue-500/50";
+      return "bg-blue-500/10 text-blue-500 border-blue-500/20";
     default:
-      return "bg-gray-500/20 text-gray-400 border-gray-500/50";
+      return "bg-gray-500/10 text-gray-400 border-gray-500/20";
   }
-};
-
-const getCriticalPulse = (severity: string) => {
-  return severity === "Critical" ? "animate-pulse shadow-lg shadow-red-500/20" : "";
 };
 
 export const AlertsPanel: React.FC<AlertsPanelProps> = ({
@@ -37,157 +33,130 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
   isLoading = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const unreadCount = useMemo(() => alerts.filter((a) => !a.isRead).length, [alerts]);
-  const criticalAlerts = useMemo(
-    () => alerts.filter((a) => a.severity === "Critical" && !a.isRead).length,
-    [alerts]
-  );
-
-  // Play sound for new critical alerts
+  
+  // Close dropdown when clicking outside
   useEffect(() => {
-    if (soundEnabled && criticalAlerts > 0) {
-      // Simple beep using Web Audio API
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      oscillator.frequency.value = 800;
-      oscillator.type = "sine";
-
-      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.2);
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
     }
-  }, [criticalAlerts, soundEnabled]);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const handleAlertClick = (alertId: string) => {
+    onMarkAsRead(alertId);
+    setIsOpen(false);
+    navigate("/dashboard/alerts");
+  };
+
+  const displayAlerts = alerts.slice(0, 5); // Show top 5 recent alerts in the dropdown
 
   return (
-    <div className="fixed right-0 top-0 h-screen z-50">
+    <div className="relative" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="absolute -left-14 top-4 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg shadow-lg transition-all relative"
+        className="relative p-2 rounded-full hover:bg-slate-800 text-gray-400 hover:text-white transition-colors focus:outline-none"
+        aria-label="Alerts"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center -translate-y-1 translate-x-1">
+          <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 border-2 border-slate-900">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Panel */}
+      {/* Popover Dropdown */}
       {isOpen && (
-        <div className="w-96 h-screen bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 shadow-xl rounded-lg overflow-hidden z-50">
           {/* Header */}
-          <div className="bg-slate-800 border-b border-slate-700 p-4 flex items-center justify-between flex-shrink-0">
+          <div className="bg-slate-800/80 px-4 py-3 flex items-center justify-between border-b border-slate-700">
             <div>
-              <h2 className="text-lg font-semibold text-white">Alerts</h2>
+              <h3 className="text-sm font-semibold text-white">Notifications</h3>
               <p className="text-xs text-gray-400">{unreadCount} unread</p>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Controls */}
-          <div className="bg-slate-800/50 border-b border-slate-700 px-4 py-3 flex items-center gap-2 flex-shrink-0">
-            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer flex-1">
-              <input
-                type="checkbox"
-                checked={soundEnabled}
-                onChange={(e) => setSoundEnabled(e.target.checked)}
-                className="w-4 h-4 rounded"
-              />
-              <span>Sound alerts</span>
-            </label>
             {unreadCount > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onMarkAllAsRead}
-                className="text-xs"
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkAllAsRead();
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
               >
-                Mark all read
-              </Button>
+                Mark all as read
+              </button>
             )}
           </div>
 
           {/* Alerts List */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="max-h-[400px] overflow-y-auto">
             {isLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-6 h-6 border-3 border-slate-700 border-t-blue-600 rounded-full animate-spin"></div>
-                  <p className="text-sm text-gray-500">Loading alerts...</p>
-                </div>
+              <div className="flex items-center justify-center py-8">
+                <div className="w-5 h-5 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin"></div>
               </div>
-            ) : alerts.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-                No alerts yet
+            ) : displayAlerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                <Bell className="w-8 h-8 mb-2 opacity-20" />
+                <p className="text-sm">No new alerts</p>
               </div>
             ) : (
-              <div className="space-y-2 p-3">
-                {alerts.map((alert) => (
-                  <div
+              <div className="flex flex-col divide-y divide-slate-800/50">
+                {displayAlerts.map((alert) => (
+                  <button
                     key={alert.id}
-                    className={`p-3 rounded border transition-all ${getSeverityColor(
-                      alert.severity
-                    )} ${getCriticalPulse(alert.severity)} ${
-                      alert.isRead ? "opacity-60" : "opacity-100"
+                    onClick={() => handleAlertClick(alert.id)}
+                    className={`w-full text-left p-4 hover:bg-slate-800/50 transition-colors ${
+                      !alert.isRead ? "bg-slate-800/20" : "opacity-75"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-black/30 text-gray-300 mb-1">
-                          {alert.severity}
-                        </span>
-                        <p className="text-xs opacity-90 line-clamp-2">{alert.message}</p>
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 p-1.5 rounded-full border ${getSeverityStyles(alert.severity)}`}>
+                        <AlertTriangle className="w-3.5 h-3.5" />
                       </div>
-                      <button
-                        onClick={() => onMarkAsRead(alert.id)}
-                        className="flex-shrink-0 text-gray-400 hover:text-white transition-colors"
-                      >
-                        {alert.isRead ? (
-                          <CheckSquare className="w-4 h-4" />
-                        ) : (
-                          <Square className="w-4 h-4" />
-                        )}
-                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-xs font-semibold text-white">
+                            {alert.severity} Alert
+                          </span>
+                          <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                            {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+                          </span>
+                        </div>
+                        <p className={`text-xs line-clamp-2 ${!alert.isRead ? "text-gray-300 font-medium" : "text-gray-400"}`}>
+                          {alert.message}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-end text-xs opacity-75">
-                      <span>
-                        {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
-                      </span>
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </div>
 
           {/* Footer */}
-          <div className="bg-slate-800/50 border-t border-slate-700 px-4 py-2 text-xs text-gray-500 flex-shrink-0">
-            Total: {alerts.length} alert{alerts.length !== 1 ? "s" : ""}
+          <div className="bg-slate-800/50 border-t border-slate-700 p-2">
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                navigate("/dashboard/alerts");
+              }}
+              className="w-full text-center text-xs text-blue-400 hover:text-blue-300 py-2 rounded transition-colors"
+            >
+              View all alerts
+            </button>
           </div>
         </div>
-      )}
-
-      {/* Overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40"
-          onClick={() => setIsOpen(false)}
-        ></div>
       )}
     </div>
   );

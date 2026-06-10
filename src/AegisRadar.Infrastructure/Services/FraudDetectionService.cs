@@ -182,15 +182,15 @@ public class FraudDetectionService : IFraudDetectionService
         ruleCount++;
 
         // Normalize fraud score to 0-1 range
-        double probability = Math.Min(1.0, Math.Max(0.0, fraudScore / 2.0 + 0.3));
+        double probability = Math.Min(1.0, Math.Max(0.0, fraudScore / 2.0 + 0.15));
 
         // Determine decision based on probability with more aggressive thresholds
         // Lower threshold for auto-approval, easier to block known fraud patterns
         string decision = probability switch
         {
-            >= 0.60 => "blocked",      // Was 0.65 - more aggressive blocking
-            <= 0.40 => "approved",     // Was 0.35 - more generous approval
-            _ => "review"              // Only 0.40-0.60 range needs review
+            >= 0.65 => "blocked",
+            <= 0.35 => "approved",
+            _ => "review"
         };
 
         _logger.LogInformation(

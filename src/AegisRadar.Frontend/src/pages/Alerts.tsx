@@ -172,7 +172,7 @@ const AlertRow: React.FC<AlertRowProps> = ({ alert, onMarkRead, onDecision }) =>
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Country</p>
-                <p className="font-semibold text-white">{txDetails.country}</p>
+                <p className="font-semibold text-white">{txDetails.transactionCountry}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Status</p>
@@ -211,16 +211,20 @@ const AlertRow: React.FC<AlertRowProps> = ({ alert, onMarkRead, onDecision }) =>
 };
 
 const Alerts = () => {
-  const alertStore = useAlertStore();
-  const { alerts, isLoading, unreadCount } = alertStore;
+  const alerts = useAlertStore((s) => s.alerts);
+  const isLoading = useAlertStore((s) => s.isLoading);
+  const unreadCount = useAlertStore((s) => s.unreadCount);
+  const loadAlerts = useAlertStore((s) => s.loadAlerts);
+  const markRead = useAlertStore((s) => s.markRead);
+  const markAllRead = useAlertStore((s) => s.markAllRead);
 
   useEffect(() => {
-    alertStore.loadAlerts();
+    loadAlerts();
   }, []);
 
   const handleMarkRead = async (id: string) => {
     try {
-      await alertStore.markRead(id);
+      await markRead(id);
     } catch {
       toast.error("Failed to mark alert as read");
     }
@@ -228,7 +232,7 @@ const Alerts = () => {
 
   const handleMarkAllRead = async () => {
     try {
-      await alertStore.markAllRead();
+      await markAllRead();
       toast.success("All alerts marked as read");
     } catch {
       toast.error("Failed to mark all alerts as read");
@@ -247,7 +251,7 @@ const Alerts = () => {
         "Manual decision from alert"
       );
       toast.success(`Transaction ${decision} successfully`);
-      await alertStore.markRead(alertId);
+      await markRead(alertId);
     } catch (err: any) {
       toast.error(err?.message || `Failed to ${decision === "Approved" ? "approve" : "block"} transaction`);
       throw err; // re-throw so AlertRow can handle it

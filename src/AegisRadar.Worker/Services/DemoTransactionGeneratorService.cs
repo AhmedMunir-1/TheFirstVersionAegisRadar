@@ -14,7 +14,7 @@ public class DemoTransactionGeneratorService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DemoTransactionGeneratorService> _logger;
-    private readonly TimeSpan _generationInterval = TimeSpan.FromSeconds(1);
+    private readonly TimeSpan _generationInterval = TimeSpan.FromSeconds(8);
 
     public DemoTransactionGeneratorService(
         IServiceScopeFactory scopeFactory,
@@ -28,7 +28,7 @@ public class DemoTransactionGeneratorService : BackgroundService
     {
         _logger.LogInformation("DemoTransactionGeneratorService starting. Generating transactions automatically.");
 
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
