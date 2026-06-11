@@ -15,6 +15,8 @@ public class AegisRadarDbContext : DbContext
     public DbSet<Prediction> Predictions { get; set; } = null!;
     public DbSet<TransactionHistory> TransactionHistories { get; set; } = null!;
     public DbSet<Alert> Alerts { get; set; } = null!;
+    public DbSet<MerchantApiKey> MerchantApiKeys { get; set; } = null!;
+    public DbSet<AppNotification> AppNotifications { get; set; } = null!;
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -57,6 +59,18 @@ public class AegisRadarDbContext : DbContext
             .WithMany(t => t.Alerts)
             .HasForeignKey(a => a.TransactionId)
             .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<MerchantApiKey>()
+            .HasOne(k => k.Merchant)
+            .WithMany()
+            .HasForeignKey(k => k.MerchantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<AppNotification>()
+            .HasOne(n => n.Merchant)
+            .WithMany()
+            .HasForeignKey(n => n.MerchantId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Configure decimal properties with precision and scale
         modelBuilder.Entity<Transaction>()

@@ -9,6 +9,7 @@ public class Merchant : BaseEntity
     public string ApiKey { get; set; } = string.Empty;
     public string Role { get; set; } = "Admin";
     public bool IsEmailConfirmed { get; set; } = true;
+    public Guid? OrganizationId { get; set; }
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
     public ICollection<Alert> Alerts { get; set; } = new List<Alert>();

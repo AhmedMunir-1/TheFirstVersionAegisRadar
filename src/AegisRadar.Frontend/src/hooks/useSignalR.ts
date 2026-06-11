@@ -6,11 +6,11 @@ import { useAuthStore } from "@/store/authStore";
 
 export function useSignalR(): void {
   const authToken = useAuthStore((state) => state.token);
-  const dashboardStore = useDashboardStore();
-  const alertStore = useAlertStore();
   const flushIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastRefreshRef = useRef<number>(0);
   const isRefreshingRef = useRef<boolean>(false);
+  const transactionBuffer = useRef<any[]>([]);
+  const alertBuffer = useRef<any[]>([]);
 
   useEffect(() => {
     if (!authToken) {
@@ -22,14 +22,11 @@ export function useSignalR(): void {
     let unsubscribeDashboardRefresh: (() => void) | undefined;
     let unsubscribeStatus: (() => void) | undefined;
 
-    const transactionBuffer = useRef<any[]>([]);
-    const alertBuffer = useRef<any[]>([]);
-
     const setupSignalR = async () => {
       try {
         // Connect to SignalR
         await signalRService.connect();
-        dashboardStore.setSignalRStatus("Connected");
+        useDashboardStore.getState().setSignalRStatus("Connected");
 
         // Flush transaction buffer every 500ms for a more "live" feel
         flushIntervalRef.current = setInterval(() => {
@@ -67,7 +64,7 @@ export function useSignalR(): void {
           console.log("🔄 DashboardRefresh received");
           if (!isRefreshingRef.current) {
             isRefreshingRef.current = true;
-            dashboardStore.loadInitialData().catch(console.error).finally(() => {
+            useDashboardStore.getState().loadInitialData().catch(console.error).finally(() => {
               isRefreshingRef.current = false;
             });
           }
@@ -75,7 +72,7 @@ export function useSignalR(): void {
 
         unsubscribeStatus = signalRService.onConnectionStatusChanged((status) => {
           console.log("SignalR status:", status);
-          dashboardStore.setSignalRStatus(status);
+          useDashboardStore.getState().setSignalRStatus(status);
 
           // Only refresh data on reconnect (avoid multiple refreshes)
           // AND only if we haven't refreshed in the last 5 seconds
@@ -83,7 +80,7 @@ export function useSignalR(): void {
             const now = Date.now();
             if (now - lastRefreshRef.current > 5000) {
               isRefreshingRef.current = true;
-              dashboardStore.loadInitialData().catch(console.error).finally(() => {
+              useDashboardStore.getState().loadInitialData().catch(console.error).finally(() => {
                 isRefreshingRef.current = false;
                 lastRefreshRef.current = now;
               });
@@ -92,7 +89,7 @@ export function useSignalR(): void {
         });
       } catch (error) {
         console.error("Failed to setup SignalR:", error);
-        dashboardStore.setSignalRStatus("Disconnected");
+        useDashboardStore.getState().setSignalRStatus("Disconnected");
       }
     };
 
@@ -108,5 +105,5 @@ export function useSignalR(): void {
       unsubscribeDashboardRefresh?.();
       unsubscribeStatus?.();
     };
-  }, [authToken, dashboardStore, alertStore]);
+  }, [authToken]);
 }

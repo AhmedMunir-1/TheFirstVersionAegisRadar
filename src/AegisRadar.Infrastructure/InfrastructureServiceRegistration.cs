@@ -47,6 +47,8 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IAlertRepository, AlertRepository>();
         services.AddScoped<IMerchantRepository, MerchantRepository>();
         services.AddScoped<ITransactionHistoryRepository, TransactionHistoryRepository>();
+        services.AddScoped<IMerchantApiKeyRepository, MerchantApiKeyRepository>();
+        services.AddScoped<IAppNotificationRepository, AppNotificationRepository>();
 
         // ── Kafka ──────────────────────────────────────────────────────────
         services.Configure<KafkaSettings>(configuration.GetSection("Kafka"));
@@ -65,6 +67,9 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IFeatureEngineeringService, FeatureEngineeringService>();
         services.AddScoped<INotificationService, SignalRNotificationService>();
         services.AddScoped<IDemoTransactionGenerator, DemoTransactionGenerator>();
+
+        // ── Email Service ──────────────────────────────────────────────────
+        services.AddScoped<IEmailService, EmailService>();
 
         // ── Auth ───────────────────────────────────────────────────────────
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));

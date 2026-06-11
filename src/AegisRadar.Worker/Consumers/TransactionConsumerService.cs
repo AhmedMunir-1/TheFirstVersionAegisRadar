@@ -239,6 +239,19 @@ public class TransactionConsumerService : BackgroundService
 
             await uow.SaveChangesAsync(ct);
 
+            // Create in-app notification
+            var notification = new AppNotification
+            {
+                MerchantId = evt.MerchantId,
+                Title = "Fraud Alert",
+                Message = alert!.Message,
+                Type = "fraud_alert",
+                Severity = decision == FraudDecision.Blocked ? "high" : "medium",
+                IsRead = false
+            };
+            await uow.AppNotifications.AddAsync(notification, ct);
+            await uow.SaveChangesAsync(ct);
+
             _logger.LogInformation(
                 "Transaction {Id} processed: decision={Decision}, probability={Prob:F4}",
                 evt.TransactionId, decision, prediction.fraud_probability);

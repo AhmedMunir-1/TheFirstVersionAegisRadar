@@ -14,6 +14,8 @@ public class UnitOfWork : IUnitOfWork
         Alerts = new AlertRepository(context);
         Merchants = new MerchantRepository(context);
         TransactionHistories = new TransactionHistoryRepository(context);
+        MerchantApiKeys = new MerchantApiKeyRepository(context);
+        AppNotifications = new AppNotificationRepository(context);
     }
 
     public ITransactionRepository Transactions { get; }
@@ -21,6 +23,8 @@ public class UnitOfWork : IUnitOfWork
     public IAlertRepository Alerts { get; }
     public IMerchantRepository Merchants { get; }
     public ITransactionHistoryRepository TransactionHistories { get; }
+    public IMerchantApiKeyRepository MerchantApiKeys { get; }
+    public IAppNotificationRepository AppNotifications { get; }
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {

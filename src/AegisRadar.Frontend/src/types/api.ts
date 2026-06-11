@@ -205,3 +205,224 @@ export interface ChartDataPoint {
   totalAmount: number;
   avgFraudProbability: number;
 }
+
+// ==================== ANALYTICS DTOs ====================
+export interface TrendsDto {
+  labels: string[];
+  fraudRate: number[];
+  transactionVolume: number[];
+}
+
+export interface HourlyDistributionDto {
+  bucket: string;
+  count: number;
+  fraudRate: number;
+}
+
+export interface AnalyticsSummaryDto {
+  totalTransactions: number;
+  totalFraudulent: number;
+  fraudRate: number;
+  overallRiskScore: number;
+  blockedTransactions: number;
+  avgResponseTimeMs: number;
+  trends: TrendsDto;
+  topRiskyMerchants: string[];
+  hourlyDistribution: HourlyDistributionDto[];
+  lastUpdated: string;
+}
+
+// ==================== POSTURE DTOs ====================
+export interface ThreatDto {
+  id: string;
+  name: string;
+  count: number;
+  delta: number;
+  severity: string;
+  lastSeen: string;
+}
+
+export interface RecommendationDto {
+  priority: string;
+  title: string;
+  body: string;
+  effort: string;
+}
+
+export interface PostureSummaryDto {
+  fraudPrevention: number;
+  authStrength: number;
+  modelAccuracy: number;
+  responseCoverage: number;
+  policyCompliance: number;
+  overallScore: number;
+  quickStats: QuickStatDto[];
+  riskCards: RiskCardDto[];
+  insights: InsightDto[];
+  threats: ThreatDto[];
+  recommendations: RecommendationDto[];
+  trend: number[];
+  reportPeriod: string;
+  business: string;
+  lastScan: string;
+}
+
+export interface QuickStatDto {
+  label: string;
+  value: number;
+}
+
+export interface RiskCardDto {
+  title: string;
+  value: string;
+  icon: string;
+}
+
+export interface InsightDto {
+  title: string;
+  description: string;
+}
+
+// ==================== HISTORY DTOs ====================
+export interface HistoryTransactionDto extends TransactionResponseDto {
+  riskLevel: string; // HIGH, MEDIUM, LOW
+}
+
+export interface HistoryResponseDto {
+  transactions: HistoryTransactionDto[];
+  total: number;
+  fraudCount: number;
+  reviewCount: number;
+  totalAmount: number;
+}
+
+// ==================== TEAM DTOs ====================
+export interface TeamMemberDto {
+  id: string;
+  companyName: string;
+  email: string;
+  role: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface InviteTeamMemberDto {
+  email: string;
+  companyName: string;
+  role: string;
+}
+
+export interface UpdateRoleDto {
+  role: string;
+}
+
+export interface UpdateRoleResponseDto {
+  id: string;
+  role: string;
+}
+
+// ==================== SETTINGS DTOs ====================
+export interface GeneralSettingsDto {
+  organizationName: string;
+  email: string;
+}
+
+export interface SecuritySettingsDto {
+  fraudThreshold: number;
+  autoBlockHighRisk: boolean;
+  twoFactorEnabled: boolean;
+}
+
+export interface NotificationsSettingsDto {
+  dailyDigest: boolean;
+  emailNotifications: boolean;
+}
+
+export interface ApiSettingsDto {
+  apiKey: string;
+}
+
+export interface AppearanceSettingsDto {
+  theme: string;
+  language: string;
+}
+
+export interface SettingsDto {
+  general: GeneralSettingsDto;
+  security: SecuritySettingsDto;
+  notifications: NotificationsSettingsDto;
+  api: ApiSettingsDto;
+  appearance: AppearanceSettingsDto;
+}
+
+export interface UpdateSettingsRequestDto {
+  general?: GeneralSettingsDto;
+  security?: SecuritySettingsDto;
+  notifications?: NotificationsSettingsDto;
+  api?: ApiSettingsDto;
+  appearance?: AppearanceSettingsDto;
+}
+
+export interface UpdateSettingsResponseDto {
+  success: boolean;
+  timestamp: string;
+  updatedBy: string;
+}
+
+// ==================== API KEYS DTOs ====================
+export interface MerchantApiKeyDto {
+  id: string;
+  keyName: string;
+  apiKey: string;
+  isActive: boolean;
+  lastUsedAt?: string;
+  createdAt: string;
+}
+
+export interface CreateApiKeyRequestDto {
+  keyName: string;
+}
+
+export interface CreateApiKeyResponseDto {
+  id: string;
+  keyName: string;
+  apiKey: string;
+  createdAt: string;
+}
+
+// ==================== APP NOTIFICATIONS DTOs ====================
+export interface AppNotificationDto {
+  id: string;
+  title: string;
+  message: string;
+  type: string; // fraud_alert, system, daily_summary
+  severity: string; // low, medium, high, critical
+  isRead: boolean;
+  createdAt: string;
+}
+
+// ==================== DEMO DTOs ====================
+export interface DemoStatusDto {
+  status: string;
+  modelVersion: string;
+  accuracy: number;
+  totalTransactions: number;
+  avgResponseMs: number;
+  fraudDetectedToday: number;
+  lastTrained: string;
+  serverUptime: string;
+}
+
+export interface DemoTransactionDto {
+  transactionId: string;
+  merchant: string;
+  amount: number;
+  timestamp: string;
+  velocity1h: number;
+  velocity24h: number;
+  merchantCategory: string;
+}
+
+export interface BatchTestResponseDto {
+  transactions: DemoTransactionDto[];
+}

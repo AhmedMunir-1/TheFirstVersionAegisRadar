@@ -12,6 +12,10 @@ import Dashboard from "./pages/Dashboard";
 import Alerts from "./pages/Alerts";
 import Transactions from "./pages/Transactions";
 import Profile from "./pages/Profile";
+import Posture from "./pages/Posture";
+import Team from "./pages/Team";
+import SettingsPage from "./pages/Settings";
+import Demo from "./pages/Demo";
 import NotFound from "./pages/NotFound";
 import { SignalRProvider } from "./components/SignalRProvider";
 
@@ -28,6 +32,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/demo" element={<Demo />} />
             
             <Route path="/dashboard" element={
                 <ProtectedRoute>
@@ -40,6 +45,9 @@ const App = () => (
                 <Route path="alerts" element={<Alerts />} />
                 <Route path="transactions" element={<Transactions />} />
                 <Route path="profile" element={<Profile />} />
+                <Route path="posture" element={<Posture />} />
+                <Route path="team" element={<Team />} />
+                <Route path="settings" element={<SettingsPage />} />
             </Route>
 
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

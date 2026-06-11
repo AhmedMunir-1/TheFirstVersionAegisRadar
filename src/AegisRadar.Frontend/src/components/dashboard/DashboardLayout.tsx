@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { Shield, Home, Bell, Activity, User, LogOut } from "lucide-react";
+import { Shield, Home, Bell, Activity, User, LogOut, ShieldCheck, Users, Settings, FlaskConical } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import NotificationFeed from "../NotificationFeed";
 import {
   Sidebar,
   SidebarContent,
@@ -29,9 +30,24 @@ const items = [
     icon: Activity,
   },
   {
+    title: "Posture",
+    url: "/dashboard/posture",
+    icon: ShieldCheck,
+  },
+  {
+    title: "Team",
+    url: "/dashboard/team",
+    icon: Users,
+  },
+  {
     title: "Alerts",
     url: "/dashboard/alerts",
     icon: Bell,
+  },
+  {
+    title: "Settings",
+    url: "/dashboard/settings",
+    icon: Settings,
   },
   {
     title: "Profile",
@@ -107,6 +123,7 @@ export default function DashboardLayout() {
                       return lastPath;
                     })()}
                 </h1>
+                <NotificationFeed />
             </div>
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">

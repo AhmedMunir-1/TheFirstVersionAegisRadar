@@ -19,6 +19,22 @@ import {
   SubscriptionPlanDto,
   CreatePaymentDto,
   ProcessPaymentDto,
+  AnalyticsSummaryDto,
+  PostureSummaryDto,
+  HistoryResponseDto,
+  TeamMemberDto,
+  InviteTeamMemberDto,
+  UpdateRoleDto,
+  UpdateRoleResponseDto,
+  SettingsDto,
+  UpdateSettingsRequestDto,
+  UpdateSettingsResponseDto,
+  MerchantApiKeyDto,
+  CreateApiKeyRequestDto,
+  CreateApiKeyResponseDto,
+  AppNotificationDto,
+  DemoStatusDto,
+  BatchTestResponseDto,
 } from "@/types/api";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5099";
@@ -262,6 +278,156 @@ export const payments = {
   },
 };
 
+// ==================== ANALYTICS CLIENT ====================
+export const analytics = {
+  async getSummary(): Promise<AnalyticsSummaryDto> {
+    const response = await axiosInstance.get<ApiResponse<AnalyticsSummaryDto>>(
+      "/api/analytics"
+    );
+    return response.data.data;
+  },
+};
+
+// ==================== POSTURE CLIENT ====================
+export const posture = {
+  async getSummary(): Promise<PostureSummaryDto> {
+    const response = await axiosInstance.get<ApiResponse<PostureSummaryDto>>(
+      "/api/posture"
+    );
+    return response.data.data;
+  },
+};
+
+// ==================== HISTORY CLIENT ====================
+export const history = {
+  async getTransactions(
+    limit: number = 500,
+    offset: number = 0,
+    status?: string,
+    riskMin?: number
+  ): Promise<HistoryResponseDto> {
+    const params = new URLSearchParams();
+    if (limit) params.append("limit", limit.toString());
+    if (offset) params.append("offset", offset.toString());
+    if (status) params.append("status", status);
+    if (riskMin !== undefined && riskMin > 0) params.append("riskMin", riskMin.toString());
+
+    const response = await axiosInstance.get<ApiResponse<HistoryResponseDto>>(
+      `/api/history?${params.toString()}`
+    );
+    return response.data.data;
+  },
+};
+
+// ==================== TEAM CLIENT ====================
+export const team = {
+  async getMembers(): Promise<TeamMemberDto[]> {
+    const response = await axiosInstance.get<ApiResponse<TeamMemberDto[]>>(
+      "/api/team"
+    );
+    return response.data.data;
+  },
+
+  async inviteMember(dto: InviteTeamMemberDto): Promise<TeamMemberDto> {
+    const response = await axiosInstance.post<ApiResponse<TeamMemberDto>>(
+      "/api/team/invite",
+      dto
+    );
+    return response.data.data;
+  },
+
+  async updateMemberRole(
+    memberId: string,
+    dto: UpdateRoleDto
+  ): Promise<UpdateRoleResponseDto> {
+    const response = await axiosInstance.put<ApiResponse<UpdateRoleResponseDto>>(
+      `/api/team/${memberId}/role`,
+      dto
+    );
+    return response.data.data;
+  },
+};
+
+// ==================== SETTINGS CLIENT ====================
+export const settings = {
+  async getSettings(): Promise<SettingsDto> {
+    const response = await axiosInstance.get<ApiResponse<SettingsDto>>(
+      "/api/settings"
+    );
+    return response.data.data;
+  },
+
+  async updateSettings(
+    dto: UpdateSettingsRequestDto
+  ): Promise<UpdateSettingsResponseDto> {
+    const response = await axiosInstance.put<ApiResponse<UpdateSettingsResponseDto>>(
+      "/api/settings",
+      dto
+    );
+    return response.data.data;
+  },
+};
+
+// ==================== API KEYS CLIENT ====================
+export const apiKeys = {
+  async getKeys(): Promise<MerchantApiKeyDto[]> {
+    const response = await axiosInstance.get<ApiResponse<MerchantApiKeyDto[]>>(
+      "/api/api-keys"
+    );
+    return response.data.data;
+  },
+
+  async createKey(dto: CreateApiKeyRequestDto): Promise<CreateApiKeyResponseDto> {
+    const response = await axiosInstance.post<ApiResponse<CreateApiKeyResponseDto>>(
+      "/api/api-keys",
+      dto
+    );
+    return response.data.data;
+  },
+
+  async deleteKey(id: string): Promise<void> {
+    await axiosInstance.delete(`/api/api-keys/${id}`);
+  },
+};
+
+// ==================== IN-APP NOTIFICATIONS CLIENT ====================
+export const inAppNotifications = {
+  async getNotifications(limit: number = 50): Promise<AppNotificationDto[]> {
+    const response = await axiosInstance.get<ApiResponse<AppNotificationDto[]>>(
+      `/api/in-app-notifications?limit=${limit}`
+    );
+    return response.data.data;
+  },
+
+  async markAsRead(id: string): Promise<void> {
+    await axiosInstance.post(`/api/in-app-notifications/${id}/read`);
+  },
+};
+
+// ==================== DEMO CLIENT ====================
+export const demo = {
+  async getStatus(): Promise<DemoStatusDto> {
+    const response = await axiosInstance.get<ApiResponse<DemoStatusDto>>(
+      "/api/demo/status"
+    );
+    return response.data.data;
+  },
+
+  async batchTest(
+    count: number = 30,
+    type?: string
+  ): Promise<BatchTestResponseDto> {
+    const params = new URLSearchParams();
+    params.append("count", count.toString());
+    if (type) params.append("type", type);
+
+    const response = await axiosInstance.get<ApiResponse<BatchTestResponseDto>>(
+      `/api/demo/batch-test?${params.toString()}`
+    );
+    return response.data.data;
+  },
+};
+
 // Export everything as apiClient
 export const apiClient = {
   auth,
@@ -271,6 +437,14 @@ export const apiClient = {
   merchants,
   subscriptions,
   payments,
+  analytics,
+  posture,
+  history,
+  team,
+  settings,
+  apiKeys,
+  inAppNotifications,
+  demo,
   instance: axiosInstance,
 };
 
