@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Pause, Play, Filter } from "lucide-react";
+import { Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TransactionResponseDto } from "@/types/api";
 
 interface LiveTransactionFeedProps {
   transactions: TransactionResponseDto[];
+  totalTransactionsToday?: number;
   isLoading?: boolean;
   onTransactionClick?: (transaction: TransactionResponseDto) => void;
 }
@@ -48,26 +49,19 @@ const getFraudColor = (probability: number) => {
 
 export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
   transactions,
+  totalTransactionsToday,
   isLoading = false,
   onTransactionClick,
 }) => {
-  const [isPaused, setIsPaused] = useState(false);
   const [minFraudFilter, setMinFraudFilter] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   const [displayedTransactions, setDisplayedTransactions] = useState<TransactionResponseDto[]>([]);
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const pausedSnapshotRef = useRef<TransactionResponseDto[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // When pausing, save the current snapshot
-    if (isPaused) {
-      pausedSnapshotRef.current = displayedTransactions;
-      return;
-    }
-
-    // When running, throttle updates to every 800ms
+    // Throttle updates to every 500ms
     if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
     updateTimerRef.current = setTimeout(() => {
       const filtered = transactions
@@ -82,7 +76,7 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
       if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, isPaused, minFraudFilter, statusFilter]);
+  }, [transactions, minFraudFilter, statusFilter]);
 
   // Track new IDs for animation
   const latestId = displayedTransactions[0]?.id;
@@ -101,7 +95,7 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
     return () => clearTimeout(timeout);
   }, [latestId]);
 
-  const unreadCount = transactions.length;
+  const totalCount = totalTransactionsToday ?? transactions.length;
 
   if (isLoading) {
     return (
@@ -120,34 +114,11 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
       <div className="bg-slate-800/50 border-b border-slate-700 p-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-semibold text-white">Live Transactions</h3>
-          <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-blue-600 rounded-full">
-            {unreadCount}
+          <span className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 text-xs font-bold text-white bg-blue-600 rounded-full">
+            {totalCount}
           </span>
         </div>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setIsPaused(!isPaused)}
-            className={`gap-1 ${isPaused
-              ? "border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
-              : "border-slate-600 text-gray-300"}`}
-          >
-            {isPaused ? (
-              <><Play className="w-4 h-4" /> Resume</>
-            ) : (
-              <><Pause className="w-4 h-4" /> Pause</>
-            )}
-          </Button>
-        </div>
       </div>
-
-      {isPaused && (
-        <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-4 py-2 text-xs text-yellow-400 flex items-center gap-2">
-          <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-          Feed paused — new transactions are being collected
-        </div>
-      )}
 
       {/* Filters */}
       <div className="bg-slate-800/30 border-b border-slate-700 p-3 flex gap-2 items-center flex-wrap">
@@ -263,7 +234,7 @@ export const LiveTransactionFeed: React.FC<LiveTransactionFeedProps> = ({
 
       {/* Footer */}
       <div className="bg-slate-800/50 border-t border-slate-700 px-4 py-2 text-xs text-gray-500">
-        Showing {displayedTransactions.length} of {transactions.length} today
+        Showing {displayedTransactions.length} of {totalCount} today
       </div>
     </div>
   );

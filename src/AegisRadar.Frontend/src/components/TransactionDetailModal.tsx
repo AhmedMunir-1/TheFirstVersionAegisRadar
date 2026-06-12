@@ -104,18 +104,33 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               </p>
             </div>
             <div>
-              <p className="text-gray-400 text-sm">Fraud Probability</p>
-              <p
-                className={`text-lg font-semibold ${
-                  fraudProbability < 0.3
-                    ? "text-green-400"
-                    : fraudProbability < 0.6
-                      ? "text-yellow-400"
-                      : "text-red-400"
-                }`}
-              >
-                {(fraudProbability * 100).toFixed(1)}%
-              </p>
+              <p className="text-gray-400 text-sm">Fraud Probability / AI Decision</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p
+                  className={`text-lg font-semibold ${
+                    fraudProbability < 0.3
+                      ? "text-green-400"
+                      : fraudProbability < 0.6
+                        ? "text-yellow-400"
+                        : "text-red-400"
+                  }`}
+                >
+                  {(fraudProbability * 100).toFixed(1)}%
+                </p>
+                {transaction.prediction?.decision && (
+                  <span
+                    className={`px-2 py-0.5 text-xs rounded-full border font-medium ${
+                      transaction.prediction.decision.toLowerCase() === "approve" || transaction.prediction.decision.toLowerCase() === "approved"
+                        ? "bg-green-500/20 text-green-400 border-green-500/50"
+                        : transaction.prediction.decision.toLowerCase() === "block" || transaction.prediction.decision.toLowerCase() === "blocked"
+                          ? "bg-red-500/20 text-red-400 border-red-500/50"
+                          : "bg-yellow-500/20 text-yellow-400 border-yellow-500/50"
+                    }`}
+                  >
+                    AI: {transaction.prediction.decision.toUpperCase()}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -135,7 +150,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-gray-400 text-sm">Country</p>
-              <p className="text-white text-sm">{transaction.country}</p>
+              <p className="text-white text-sm">{transaction.transactionCountry ?? "—"}</p>
             </div>
             <div>
               <p className="text-gray-400 text-sm">IP Address</p>

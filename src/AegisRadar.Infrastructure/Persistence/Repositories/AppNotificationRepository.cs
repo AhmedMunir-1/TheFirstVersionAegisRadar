@@ -31,4 +31,11 @@ public class AppNotificationRepository : Repository<AppNotification>, IAppNotifi
         return await Context.AppNotifications
             .CountAsync(n => n.MerchantId == merchantId && !n.IsRead, cancellationToken);
     }
+
+    public async Task MarkAllReadAsync(Guid merchantId, CancellationToken cancellationToken = default)
+    {
+        await Context.AppNotifications
+            .Where(n => n.MerchantId == merchantId && !n.IsRead)
+            .ExecuteUpdateAsync(s => s.SetProperty(n => n.IsRead, true), cancellationToken);
+    }
 }

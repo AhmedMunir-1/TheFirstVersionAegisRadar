@@ -304,20 +304,16 @@ public static class DbSeeder
                         TimeDifferenceHours     = timeDifferenceHours
                     });
 
-                    if (statusIdx > 0)
+                    if (statusIdx == 1)
                     {
                         context.Alerts.Add(new Alert
                         {
                             MerchantId    = demoMerchantId,
                             TransactionId = txId,
-                            Severity      = statusIdx == 1
-                                ? Domain.Enums.AlertSeverity.Medium
-                                : Domain.Enums.AlertSeverity.High,
-                            Message   = statusIdx == 1
-                                ? $"Transaction flagged for review: {txId}"
-                                : $"Transaction BLOCKED — fraud score above threshold: {txId}",
-                            IsRead    = rng.Next(0, 2) == 0,
-                            CreatedAt = createdAt.AddSeconds(2)
+                            Severity      = Domain.Enums.AlertSeverity.Medium,
+                            Message       = $"Transaction flagged for review: {txId}",
+                            IsRead        = rng.Next(0, 2) == 0,
+                            CreatedAt     = createdAt.AddSeconds(2)
                         });
                     }
                 }

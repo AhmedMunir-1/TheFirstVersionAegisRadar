@@ -1,4 +1,5 @@
 using AegisRadar.Domain.Entities;
+using AegisRadar.Domain.Enums;
 using AegisRadar.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +15,7 @@ public class AlertRepository : Repository<Alert>, IAlertRepository
     public async Task<IEnumerable<Alert>> GetByMerchantIdAsync(Guid merchantId, bool unreadOnly = false, CancellationToken cancellationToken = default)
     {
         var query = Context.Alerts
-            .Where(a => a.MerchantId == merchantId);
+            .Where(a => a.MerchantId == merchantId && a.Severity == AlertSeverity.Medium);
 
         if (unreadOnly)
         {
@@ -30,13 +31,13 @@ public class AlertRepository : Repository<Alert>, IAlertRepository
     public async Task<int> GetUnreadCountAsync(Guid merchantId, CancellationToken cancellationToken = default)
     {
         return await Context.Alerts
-            .CountAsync(a => a.MerchantId == merchantId && !a.IsRead, cancellationToken);
+            .CountAsync(a => a.MerchantId == merchantId && !a.IsRead && a.Severity == AlertSeverity.Medium, cancellationToken);
     }
 
     public async Task MarkAllAlertsReadAsync(Guid merchantId, CancellationToken cancellationToken = default)
     {
         await Context.Alerts
-            .Where(a => a.MerchantId == merchantId && !a.IsRead)
+            .Where(a => a.MerchantId == merchantId && !a.IsRead && a.Severity == AlertSeverity.Medium)
             .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsRead, true), cancellationToken);
     }
 }

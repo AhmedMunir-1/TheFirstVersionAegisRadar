@@ -6,15 +6,84 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { toast } from "sonner";
 import type { TransactionResponseDto } from "@/types/api";
+import { TransactionDetailModal } from "@/components/TransactionDetailModal";
+import {
+  TransactionVolumeChart,
+  FraudProbabilityChart,
+  TransactionAmountChart,
+} from "@/components/charts";
+import { TimeRangeSelector, type TimeRange } from "@/components/TimeRangeSelector";
 
 const Transactions = () => {
   const [data, setData] = useState<TransactionResponseDto[]>([]);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionResponseDto | null>(null);
 
-  // Subscribe to live transactions from the store (real-time updates on page 1)
+  // Subscribe to live transactions and chart data from the store
   const liveTransactions = useDashboardStore((state) => state.transactions);
+  const chartData = useDashboardStore((state) => state.chartData);
+  const isLoadingDashboard = useDashboardStore((state) => state.isLoading);
+  const loadInitialData = useDashboardStore((state) => state.loadInitialData);
+  const loadHistoricalTrends = useDashboardStore((state) => state.loadHistoricalTrends);
+  const stats = useDashboardStore((state) => state.stats);
+
+  const [selectedRange, setSelectedRange] = useState<TimeRange>("7D");
+  const [isLoadingChartData, setIsLoadingChartData] = useState(false);
+
+  useEffect(() => {
+    if (!stats) {
+      const initData = async () => {
+        setIsLoadingChartData(true);
+        try {
+          await loadInitialData();
+        } finally {
+          setIsLoadingChartData(false);
+        }
+      };
+      initData();
+    }
+  }, [stats, loadInitialData]);
+
+  // Handle time range selection
+  useEffect(() => {
+    const loadRangeData = async () => {
+      setIsLoadingChartData(true);
+      try {
+        let days = 7;
+        switch (selectedRange) {
+          case "1H":
+          case "6H":
+          case "24H":
+            days = 1;
+            break;
+          case "7D":
+            days = 7;
+            break;
+          case "30D":
+            days = 30;
+            break;
+          case "1Y":
+            days = 365;
+            break;
+          case "5Y":
+            days = 1825;
+            break;
+        }
+        await loadHistoricalTrends(days);
+      } catch (error) {
+        console.error("Failed to load chart data:", error);
+        toast.error("Failed to load chart data");
+      } finally {
+        setIsLoadingChartData(false);
+      }
+    };
+
+    if (stats) {
+      loadRangeData();
+    }
+  }, [selectedRange, loadHistoricalTrends, stats]);
 
   const loadTransactions = useCallback(async (pageNum: number) => {
     setIsLoading(true);
@@ -72,6 +141,18 @@ const Transactions = () => {
     }
   };
 
+  const handleReviewComplete = useCallback(
+    (updated: TransactionResponseDto) => {
+      setData((prev) =>
+        prev.map((t) => (t.id === updated.id ? updated : t))
+      );
+      toast.success(`Transaction ${updated.status.toLowerCase()}`);
+    },
+    []
+  );
+
+  const handleCloseModal = useCallback(() => setSelectedTransaction(null), []);
+
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case "Approved":
@@ -87,13 +168,14 @@ const Transactions = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold tracking-tight">Transactions</h2>
         <Button variant="outline" size="sm">
           <Download className="mr-2 h-4 w-4" />
           Export CSV
         </Button>
       </div>
+
 
       <Card className="bg-card-gradient border-border shadow-sm">
         <CardContent className="p-0">
@@ -126,7 +208,8 @@ const Transactions = () => {
                   return (
                     <div
                       key={tx.id}
-                      className="grid grid-cols-7 p-4 text-sm items-center hover:bg-muted/20 transition-colors"
+                      onClick={() => setSelectedTransaction(tx)}
+                      className="grid grid-cols-7 p-4 text-sm items-center hover:bg-muted/20 transition-colors cursor-pointer"
                     >
                       {/* ID */}
                       <div
@@ -142,7 +225,7 @@ const Transactions = () => {
                       </div>
 
                       {/* Country */}
-                      <div className="text-muted-foreground">{tx.country}</div>
+                      <div className="text-muted-foreground">{tx.transactionCountry}</div>
 
                       {/* Status */}
                       <div>
@@ -186,13 +269,19 @@ const Transactions = () => {
                         {canDecide ? (
                           <>
                             <button
-                              onClick={() => handleDecision(tx, "Approved")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDecision(tx, "Approved");
+                              }}
                               className="px-2 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-600/30 rounded transition-colors"
                             >
                               ✓ Approve
                             </button>
                             <button
-                              onClick={() => handleDecision(tx, "Blocked")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDecision(tx, "Blocked");
+                              }}
                               className="px-2 py-1 text-xs bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30 rounded transition-colors"
                             >
                               ✗ Block
@@ -233,6 +322,12 @@ const Transactions = () => {
           </div>
         </CardContent>
       </Card>
+
+      <TransactionDetailModal
+        transaction={selectedTransaction}
+        onClose={handleCloseModal}
+        onReviewComplete={handleReviewComplete}
+      />
     </div>
   );
 };

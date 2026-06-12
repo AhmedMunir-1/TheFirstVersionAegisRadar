@@ -91,4 +91,53 @@ public class InAppNotificationsController(IUnitOfWork unitOfWork, ILogger<InAppN
             return StatusCode(500, ApiResponse<object>.Fail("Failed to mark notification as read"));
         }
     }
+    /// <summary>
+    /// Mark all notifications as read for the current merchant
+    /// </summary>
+    [HttpPost("read-all")]
+    public async Task<IActionResult> MarkAllAsRead(CancellationToken ct)
+    {
+        try
+        {
+            var merchantIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(merchantIdClaim, out var merchantId))
+            {
+                return Unauthorized("Invalid authentication token");
+            }
+
+            await _unitOfWork.AppNotifications.MarkAllReadAsync(merchantId, ct);
+            
+            var response = new { message = "All notifications marked as read" };
+            return Ok(ApiResponse<object>.Ok(response));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error marking all notifications as read");
+            return StatusCode(500, ApiResponse<object>.Fail("Failed to mark all notifications as read"));
+        }
+    }
+
+    /// <summary>
+    /// Get the count of unread in-app notifications for the current merchant
+    /// </summary>
+    [HttpGet("unread-count")]
+    public async Task<IActionResult> GetUnreadCount(CancellationToken ct)
+    {
+        try
+        {
+            var merchantIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(merchantIdClaim, out var merchantId))
+            {
+                return Unauthorized("Invalid authentication token");
+            }
+
+            var count = await _unitOfWork.AppNotifications.GetUnreadCountByMerchantIdAsync(merchantId, ct);
+            return Ok(ApiResponse<int>.Ok(count));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting unread notification count");
+            return StatusCode(500, ApiResponse<int>.Fail("Failed to get unread notification count"));
+        }
+    }
 }

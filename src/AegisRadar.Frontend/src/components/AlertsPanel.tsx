@@ -59,7 +59,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
     navigate("/dashboard/alerts");
   };
 
-  const displayAlerts = alerts.slice(0, 5); // Show top 5 recent alerts in the dropdown
+  const displayAlerts = alerts; // Show all recent alerts in the dropdown
 
   return (
     <div className="relative" ref={dropdownRef}>

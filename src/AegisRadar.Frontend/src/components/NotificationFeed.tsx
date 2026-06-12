@@ -21,9 +21,9 @@ export default function NotificationFeed({ merchantId }: NotificationFeedProps) 
     try {
       setLoading(true);
       const data = await apiClient.inAppNotifications.getNotifications();
-      setNotifications(data);
-      const unread = data.filter((n) => !n.isRead).length;
-      setUnreadCount(unread);
+      const unreadData = data.filter((n) => !n.isRead);
+      setNotifications(unreadData);
+      setUnreadCount(unreadData.length);
     } catch (error) {
       console.error("Failed to load notifications:", error);
     } finally {
@@ -41,10 +41,8 @@ export default function NotificationFeed({ merchantId }: NotificationFeedProps) 
   const handleMarkAsRead = async (id: string) => {
     try {
       await apiClient.inAppNotifications.markAsRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-      );
-      setUnreadCount(Math.max(0, unreadCount - 1));
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (error) {
       console.error("Failed to mark notification as read:", error);
     }

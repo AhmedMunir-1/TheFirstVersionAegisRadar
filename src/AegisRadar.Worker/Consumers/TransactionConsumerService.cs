@@ -222,16 +222,14 @@ public class TransactionConsumerService : BackgroundService
 
             // 6. Create alert if needed
             Alert? alert = null;
-            if (decision != FraudDecision.Approved)
+            if (transaction.Status == TransactionStatus.Review)
             {
                 alert = new Alert
                 {
                     MerchantId    = evt.MerchantId,
                     TransactionId = evt.TransactionId,
-                    Severity      = decision == FraudDecision.Blocked ? AlertSeverity.High : AlertSeverity.Medium,
-                    Message       = decision == FraudDecision.Blocked
-                        ? $"Transaction BLOCKED — fraud probability {prediction.fraud_probability:P1} exceeds threshold. Transaction: {evt.TransactionId}"
-                        : $"Transaction flagged for REVIEW — fraud probability {prediction.fraud_probability:P1}. Transaction: {evt.TransactionId}",
+                    Severity      = AlertSeverity.Medium,
+                    Message       = $"Transaction flagged for REVIEW — fraud probability {prediction.fraud_probability:P1}. Transaction: {evt.TransactionId}",
                     IsRead = false
                 };
                 await uow.Alerts.AddAsync(alert, ct);
@@ -240,17 +238,20 @@ public class TransactionConsumerService : BackgroundService
             await uow.SaveChangesAsync(ct);
 
             // Create in-app notification
-            var notification = new AppNotification
+            if (alert != null)
             {
-                MerchantId = evt.MerchantId,
-                Title = "Fraud Alert",
-                Message = alert!.Message,
-                Type = "fraud_alert",
-                Severity = decision == FraudDecision.Blocked ? "high" : "medium",
-                IsRead = false
-            };
-            await uow.AppNotifications.AddAsync(notification, ct);
-            await uow.SaveChangesAsync(ct);
+                var notification = new AppNotification
+                {
+                    MerchantId = evt.MerchantId,
+                    Title = "Fraud Alert",
+                    Message = alert.Message,
+                    Type = "fraud_alert",
+                    Severity = "medium",
+                    IsRead = false
+                };
+                await uow.AppNotifications.AddAsync(notification, ct);
+                await uow.SaveChangesAsync(ct);
+            }
 
             _logger.LogInformation(
                 "Transaction {Id} processed: decision={Decision}, probability={Prob:F4}",

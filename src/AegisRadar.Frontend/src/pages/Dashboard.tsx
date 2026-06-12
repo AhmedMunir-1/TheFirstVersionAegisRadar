@@ -163,8 +163,10 @@ const DashboardCharts = React.memo(function DashboardCharts({
 
 const DashboardTransactionFeed = React.memo(function DashboardTransactionFeed({
   onTransactionClick,
+  totalTransactionsToday,
 }: {
   onTransactionClick: (tx: TransactionResponseDto) => void;
+  totalTransactionsToday: number;
 }) {
   const transactions = useTransactions();
   return (
@@ -172,6 +174,7 @@ const DashboardTransactionFeed = React.memo(function DashboardTransactionFeed({
       <div className="h-96">
         <LiveTransactionFeed
           transactions={transactions}
+          totalTransactionsToday={totalTransactionsToday}
           isLoading={false}
           onTransactionClick={onTransactionClick}
         />
@@ -210,7 +213,7 @@ export default function Dashboard() {
   const stats = useStats();
   const alerts = useAlerts();
 
-  const [selectedRange, setSelectedRange] = useState<TimeRange>("24H");
+  const [selectedRange, setSelectedRange] = useState<TimeRange>("7D");
   const [isLoadingChartData, setIsLoadingChartData] = useState(false);
   const [selectedTransaction, setSelectedTransaction] =
     useState<TransactionResponseDto | null>(null);
@@ -252,35 +255,46 @@ export default function Dashboard() {
 
   // Handle time range selection (fetch historical data if needed)
   useEffect(() => {
-    if (
-      selectedRange === "7D" ||
-      selectedRange === "30D" ||
-      selectedRange === "1Y" ||
-      selectedRange === "5Y"
-    ) {
-      const loadRangeData = async () => {
-        setIsLoadingChartData(true);
-        try {
-          const days =
-            selectedRange === "7D"
-              ? 7
-              : selectedRange === "30D"
-                ? 30
-                : selectedRange === "1Y"
-                  ? 365
-                  : 1825;
-          await loadHistoricalTrends(days);
-        } catch (error) {
-          console.error("Failed to load chart data:", error);
-          toast.error("Failed to load chart data");
-        } finally {
-          setIsLoadingChartData(false);
+    // We handle all ranges now, mapping hourly ones to 1 day for the backend
+    const loadRangeData = async () => {
+      setIsLoadingChartData(true);
+      try {
+        let days = 7;
+        switch (selectedRange) {
+          case "1H":
+          case "6H":
+          case "24H":
+            days = 1;
+            break;
+          case "7D":
+            days = 7;
+            break;
+          case "30D":
+            days = 30;
+            break;
+          case "1Y":
+            days = 365;
+            break;
+          case "5Y":
+            days = 1825;
+            break;
         }
-      };
+        await loadHistoricalTrends(days);
+      } catch (error) {
+        console.error("Failed to load chart data:", error);
+        toast.error("Failed to load chart data");
+      } finally {
+        setIsLoadingChartData(false);
+      }
+    };
 
+    // If stats hasn't loaded yet, loadInitialData is handling the first fetch (which gets 7D).
+    // We don't want to double-fetch on mount if selectedRange is 7D.
+    // However, if the user manually changes the range later, we DO want to fetch.
+    if (stats) {
       loadRangeData();
     }
-  }, [selectedRange, loadHistoricalTrends]);
+  }, [selectedRange, loadHistoricalTrends, stats]);
 
   // Stable handler for transaction review completion
   const handleReviewComplete = useCallback(
@@ -351,7 +365,10 @@ export default function Dashboard() {
         <DashboardCharts isLoadingChartData={isLoadingChartData} />
 
         {/* Live Transaction Feed — re-renders only when transactions batch is flushed */}
-        <DashboardTransactionFeed onTransactionClick={setSelectedTransaction} />
+        <DashboardTransactionFeed 
+          onTransactionClick={setSelectedTransaction} 
+          totalTransactionsToday={stats?.totalTransactionsToday ?? 0}
+        />
       </main>
 
       {/* Transaction Detail Modal */}

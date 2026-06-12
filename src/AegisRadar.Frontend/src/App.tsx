@@ -17,6 +17,8 @@ import Team from "./pages/Team";
 import SettingsPage from "./pages/Settings";
 import Demo from "./pages/Demo";
 import NotFound from "./pages/NotFound";
+import Subscription from "./pages/Subscription";
+import Payment from "./pages/Payment";
 import { SignalRProvider } from "./components/SignalRProvider";
 
 const queryClient = new QueryClient();
@@ -48,6 +50,8 @@ const App = () => (
                 <Route path="posture" element={<Posture />} />
                 <Route path="team" element={<Team />} />
                 <Route path="settings" element={<SettingsPage />} />
+                <Route path="subscription" element={<Subscription />} />
+                <Route path="payment" element={<Payment />} />
             </Route>
 
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

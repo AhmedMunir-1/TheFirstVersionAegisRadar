@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { toast } from "sonner";
 
 const Profile = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -77,6 +79,77 @@ const Profile = () => {
               <Label className="text-muted-foreground">Member Since</Label>
               <div className="font-medium">{new Date(user.createdAt).toLocaleDateString()}</div>
             </div>
+            {/* Trial Status — always visible */}
+            {(() => {
+              const start = user.trialStartDate
+                ? new Date(user.trialStartDate)
+                : new Date(user.createdAt);
+              const end = user.trialEndDate
+                ? new Date(user.trialEndDate)
+                : new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+              const now = new Date();
+              const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+              const totalDays = 14;
+              const usedDays = Math.min(totalDays, totalDays - diffDays);
+              const progressPct = Math.min(100, Math.max(0, (usedDays / totalDays) * 100));
+              const trialEnd = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+              if (diffDays > 0) {
+                return (
+                  <div className="pt-2 space-y-3">
+                    {/* Active trial countdown */}
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-blue-400">🎁 14-Day Free Trial</div>
+                        <div className="text-xs font-bold text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-full">
+                          {diffDays} {diffDays === 1 ? 'day' : 'days'} left
+                        </div>
+                      </div>
+                      <div className="w-full h-1.5 bg-blue-900/40 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 rounded-full"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-blue-300/70">
+                        Trial ends on <span className="font-medium text-blue-300">{trialEnd}</span>.
+                      </div>
+                    </div>
+                    {/* Subscribe button — always shown */}
+                    <Button
+                      className="w-full bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white border-0 font-semibold"
+                      onClick={() => navigate("/dashboard/subscription")}
+                    >
+                      ⚡ Choose a Subscription Plan
+                    </Button>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="pt-2 space-y-3">
+                    {/* Expired notice */}
+                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        <div className="text-sm font-semibold text-red-400">Trial Expired</div>
+                      </div>
+                      <p className="text-xs text-red-300/80">
+                        Your free trial ended on <span className="font-medium text-red-300">{trialEnd}</span>.
+                        Subscribe to continue using AegisRadar.
+                      </p>
+                    </div>
+                    {/* Subscribe button */}
+                    <Button
+                      className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white border-0 font-semibold"
+                      onClick={() => navigate("/dashboard/subscription")}
+                    >
+                      💳 Subscribe Now — Monthly Plan
+                    </Button>
+                  </div>
+                );
+              }
+            })()}
           </CardContent>
         </Card>
 
